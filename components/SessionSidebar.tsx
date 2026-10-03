@@ -1931,6 +1931,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     showToast(ok ? t("sidebar.copiedCommand") : t("sidebar.copyCommandFailed"));
   }, [showToast, t]);
 
+  const copyProjectPath = useCallback(async (project: SidebarProject) => {
+    const ok = await copyToClipboard(project.root);
+    showToast(ok ? t("sidebar.copiedWorkspacePath") : t("sidebar.copyWorkspacePathFailed"));
+  }, [showToast, t]);
+
   const runSessionAction = (id: SessionMenuActionId, row: SessionRow, shiftKey: boolean) => {
     const { family } = row;
     switch (id) {
@@ -2198,6 +2203,13 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         icon: <ChevronIcon className="sidebar-icon-down" />,
         disabled: down === null,
         onSelect: () => { if (down) moveProject(project.key, down.anchorKey, down.position); },
+      },
+      {
+        type: "item",
+        id: "copy-project-path",
+        label: t("sidebar.copyWorkspacePath"),
+        icon: <CheckIcon />,
+        onSelect: () => { void copyProjectPath(project); },
       },
       {
         type: "item",
