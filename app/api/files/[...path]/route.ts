@@ -155,6 +155,44 @@ export async function POST(
     if ("response" in uploadDirectory) return uploadDirectory.response;
     const { directory } = uploadDirectory;
 
+    if (type === "create-file") {
+      const body = await request.json().catch(() => null) as { name?: unknown; content?: unknown } | null;
+      if (typeof body?.name !== "string" || !body.name.trim()) {
+        return NextResponse.json({ error: "File name is required" }, { status: 400 });
+      }
+      const rawName = body.name.trim().replace(/^\/+/, "");
+      const destination = path.resolve(directory, rawName);
+      const allowedRoots = await getAllowedFileRoots();
+      if (!isFilePathAllowed(destination, allowedRoots)) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
+      if (fs.existsSync(destination)) {
+        return NextResponse.json({ error: "File already exists" }, { status: 409 });
+      }
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      const content = typeof body.content === "string" ? body.content : "";
+      fs.writeFileSync(destination, content, "utf8");
+      return NextResponse.json({ success: true, path: destination, name: path.basename(destination) });
+    }
+
+    if (type === "create-dir") {
+      const body = await request.json().catch(() => null) as { name?: unknown } | null;
+      if (typeof body?.name !== "string" || !body.name.trim()) {
+        return NextResponse.json({ error: "Directory name is required" }, { status: 400 });
+      }
+      const rawName = body.name.trim().replace(/^\/+|\/+$/g, "");
+      const destination = path.resolve(directory, rawName);
+      const allowedRoots = await getAllowedFileRoots();
+      if (!isFilePathAllowed(destination, allowedRoots)) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 });
+      }
+      if (fs.existsSync(destination)) {
+        return NextResponse.json({ error: "Directory already exists" }, { status: 409 });
+      }
+      fs.mkdirSync(destination, { recursive: true });
+      return NextResponse.json({ success: true, path: destination, name: path.basename(destination) });
+    }
+
     if (type === "upload-check") {
       const body = await request.json().catch(() => null) as { fileNames?: unknown } | null;
       const fileNames = parseUploadFileNames(body?.fileNames);
@@ -687,5 +725,60 @@ export async function GET(
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  try {
+    const { path: segments } = await params;
+    const filePath = filePathFromApiSegments(segments);
+    if (hasParentDirectorySegment(filePath)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+
+    const allowedRoots = await getAllowedFileRoots();
+    if (!isFilePathAllowed(filePath, allowedRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+
+    for (const root of allowedRoots) {
+      if (samePath(filePath, root)) {
+        return NextResponse.json({ error: "Cannot delete project root" }, { status: 400 });
+      }
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
+    }
+
+    const realPath = fs.realpathSync(filePath);
+    const realRoots = new Set<string>();
+    for (const root of allowedRoots) {
+      try {
+        realRoots.add(fs.realpathSync(root));
+      } catch {
+        // Ignore stale session roots that no longer exist.
+      }
+    }
+    if (!isFilePathAllowed(realPath, realRoots)) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    }
+    for (const root of realRoots) {
+      if (samePath(realPath, root)) {
+        return NextResponse.json({ error: "Cannot delete project root" }, { status: 400 });
+      }
+    }
+
+    fs.rmSync(filePath, { recursive: true, force: true });
+    return NextResponse.json({ success: true, path: filePath });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

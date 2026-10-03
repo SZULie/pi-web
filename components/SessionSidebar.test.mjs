@@ -467,24 +467,26 @@ test("below the sessions the section's header row holds the files' keys in the f
   // tree's two views (what it lists, its changes), then the file search,
   // which the files tab leaves to the toolbar row. The search is the
   // files' (the toolbar row's is the sessions'), an expandable control,
-  // not a toggle. Seven keys always there, so none ever moves.
+  // not a toggle. Nine keys always there, so none ever moves.
   assert.match(keys, /^<div class="sidebar-files-keys" role="group" aria-label="File actions">/);
   assert.deepEqual(keyLabels(keys), [
     "Open workspace terminal",
     "Open in file manager",
+    "New File",
+    "New Folder",
     "Upload files to project root",
     "Refresh file list",
     "Show ignored files pressed=false",
     "0 changed files (disabled) pressed=false",
     "Search files expanded=false",
   ]);
-  assert.equal((keys.match(/<button /g) ?? []).length, 7);
+  assert.equal((keys.match(/<button /g) ?? []).length, 9);
   // Their icons are 13px, a size under the files tab's 14px, in the sidebar
   // icons' one stroke (the files tab's keys keep 14px:
   // SessionSidebar.tabs.test.mjs).
-  assert.deepEqual([...keys.matchAll(/<svg width="(\d+)" height="(\d+)"[^>]*stroke-width="(\d+)"/g)].map((match) => match.slice(1).join(",")), Array(7).fill("13,13,2"));
+  assert.deepEqual([...keys.matchAll(/<svg width="(\d+)" height="(\d+)"[^>]*stroke-width="(\d+)"/g)].map((match) => match.slice(1).join(",")), Array(9).fill("13,13,2"));
   assert.match(source, /const keyIconSize = stacked \? 13 : 14;/);
-  assert.equal((source.match(/Icon size=\{keyIconSize\} \/>/g) ?? []).length, 7, "the six shared keys' icons, the refresh's check too");
+  assert.equal((source.match(/Icon size=\{keyIconSize\} \/>/g) ?? []).length, 9, "the shared keys' icons, the refresh's check too");
   assert.match(source, /<SearchIcon size=\{13\} \/>\s*<\/ToolbarIconButton>\s*<\/div>\s*<\/div>\s*\)\}/);
   // The head under the row is the picker alone: no second row of keys, no
   // search in the toolbar row's place.
@@ -495,21 +497,25 @@ test("below the sessions the section's header row holds the files' keys in the f
   assert.deepEqual(keyLabels(sectionKeys(render())), [
     "Open workspace terminal (disabled)",
     "Open in file manager (disabled)",
+    "New File (disabled)",
+    "New Folder (disabled)",
     "Upload files to project root (disabled)",
     "Refresh file list (disabled)",
     "Show ignored files (disabled) pressed=false",
     "0 changed files (disabled) pressed=false",
     "Search files (disabled) expanded=false",
   ]);
-  assert.deepEqual(keyLabels(sectionKeys(render({ selectedCwd: "/work/alpha" }))).slice(0, 3), [
+  assert.deepEqual(keyLabels(sectionKeys(render({ selectedCwd: "/work/alpha" }))).slice(0, 5), [
     "Open workspace terminal (disabled)",
     "Open in file manager",
+    "New File",
+    "New Folder",
     "Upload files to project root",
   ]);
 
   // The same key elements as the files tab's row, rendered in one place at a time.
   const group = between('<div className="sidebar-files-keys" role="group" aria-label={t("sidebar.fileActions")}>', "{/* Everything under that header row");
-  assert.match(group, /^<div className="sidebar-files-keys" role="group" aria-label=\{t\("sidebar\.fileActions"\)\}>\s*\{terminalButton\}\s*\{fileManagerButton\}\s*\{uploadButton\}\s*\{refreshButton\}\s*\{ignoredFilesButton\(\)\}\s*\{changesButton\}\s*<ToolbarIconButton[\s\S]*?<SearchIcon size=\{13\} \/>\s*<\/ToolbarIconButton>\s*<\/div>\s*<\/div>\s*\)\}\s*$/);
+  assert.match(group, /^<div className="sidebar-files-keys" role="group" aria-label=\{t\("sidebar\.fileActions"\)\}>\s*\{terminalButton\}\s*\{fileManagerButton\}\s*\{newFileButton\}\s*\{newFolderButton\}\s*\{uploadButton\}\s*\{refreshButton\}\s*\{ignoredFilesButton\(\)\}\s*\{changesButton\}\s*<ToolbarIconButton[\s\S]*?<SearchIcon size=\{13\} \/>\s*<\/ToolbarIconButton>\s*<\/div>\s*<\/div>\s*\)\}\s*$/);
   assert.match(source, /const terminalButton = \(\s*<ToolbarIconButton\s*onClick=\{\(\) => \{ if \(explorerCwd\) onOpenTerminal\?\.\(explorerCwd\); \}\}\s*disabled=\{!explorerCwd \|\| !onOpenTerminal\}/);
   assert.match(source, /disabled=\{!explorerCwd \|\| fileManagerUnavailable\}/);
   assert.match(source, /disabled=\{!explorerCwd \|\| explorerUploadBusy\}/);
@@ -666,7 +672,7 @@ test("below the sessions the picker is one row under the header row, lined up wi
   assert.match(sidebarStyles, /\.session-sidebar\.is-files-below \.sidebar-files-scroll \{\s*padding-top: 0;\s*\}/);
   const [, , headBottom] = px(belowHead, "padding");
   const [scrollTop] = px(sidebarStyles.slice(sidebarStyles.indexOf(".session-sidebar.is-files-below .sidebar-files-scroll {")), "padding-top");
-  const treeTop = Number(explorerSource.match(/\(changesCollapsed \|\| gitFiles\.length === 0\) && \(!fileSearchOpen \|\| !hasSearchQuery\) && \(\s*<div style=\{\{ padding: "(\d+)px \d+px" \}\}>/)[1]);
+  const treeTop = Number(explorerSource.match(/\(changesCollapsed \|\| gitFiles\.length === 0\) && \(!fileSearchOpen \|\| !hasSearchQuery\) && \(\s*<div[\s\S]*?style=\{\{ padding: "(\d+)px \d+px"/)[1]);
   assert.equal(headBottom + scrollTop + treeTop, 4, "the tree's first row 4px under the boxes");
   // An error under them keeps the boxes' edges and that 4px.
   assert.match(sidebarStyles, /\.session-sidebar\.is-files-below \.sidebar-files-error \{\s*padding: 2px var\(--sidebar-files-inset-right\) 4px 15px;\s*\}/);
@@ -692,7 +698,7 @@ test("below the sessions the picker is one row under the header row, lined up wi
   assert.match(source, /layout=\{stacked \? "row" : "stacked"\}/);
 });
 
-test("the files tab's head holds the picker and its six buttons, always the same ones in the same places", () => {
+test("the files tab's head holds the picker and its buttons, always the same ones in the same places", () => {
   // Only in the tabs layout (below the sessions the keys are the header
   // row's), after the picker: the picker's group names only the project and
   // worktree, the buttons are a group of their own. The folder's actions,
@@ -700,8 +706,8 @@ test("the files tab's head holds the picker and its six buttons, always the same
   // the toolbar row's). The changes view is there without changes too,
   // disabled, so nothing moves as an agent edits files and commits; its
   // count is the tab's. Without a terminal (no onOpenTerminal) the other
-  // five stay.
-  assert.match(source, /\{!stacked && explorerCwd && \(\s*<div className="sidebar-files-actions" role="group" aria-label=\{t\("sidebar\.fileActions"\)\}>\s*\{onOpenTerminal && terminalButton\}\s*\{fileManagerButton\}\s*\{uploadButton\}\s*\{refreshButton\}\s*\{ignoredFilesButton\("sidebar-files-views-start"\)\}\s*\{changesButton\}\s*<\/div>\s*\)\}/);
+  // keys stay.
+  assert.match(source, /\{!stacked && explorerCwd && \(\s*<div className="sidebar-files-actions" role="group" aria-label=\{t\("sidebar\.fileActions"\)\}>\s*\{onOpenTerminal && terminalButton\}\s*\{fileManagerButton\}\s*\{newFileButton\}\s*\{newFolderButton\}\s*\{uploadButton\}\s*\{refreshButton\}\s*\{ignoredFilesButton\("sidebar-files-views-start"\)\}\s*\{changesButton\}\s*<\/div>\s*\)\}/);
   assert.doesNotMatch(source, /changesCount > 0 && \(\s*<ToolbarIconButton/);
   // The ignored-files switch is the browser's, restored after hydration like
   // the tab, and it is what the explorer lists.

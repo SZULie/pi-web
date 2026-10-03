@@ -93,6 +93,7 @@ import {
   DotOutlineIcon,
   EyeIcon,
   FolderIcon,
+  FolderPlusIcon,
   MessageIcon,
   ForkIcon,
   PencilIcon,
@@ -2350,6 +2351,30 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       <FolderIcon size={keyIconSize} />
     </ToolbarIconButton>
   );
+  const newFileButton = (
+    <ToolbarIconButton
+      onClick={() => {
+        if (stacked && filesCollapsed) setFilesSectionCollapsed(false);
+        fileExplorerRef.current?.openNewFile();
+      }}
+      disabled={!explorerCwd}
+      title={t("files.newFile")}
+    >
+      <PlusIcon size={keyIconSize} />
+    </ToolbarIconButton>
+  );
+  const newFolderButton = (
+    <ToolbarIconButton
+      onClick={() => {
+        if (stacked && filesCollapsed) setFilesSectionCollapsed(false);
+        fileExplorerRef.current?.openNewFolder();
+      }}
+      disabled={!explorerCwd}
+      title={t("files.newFolder")}
+    >
+      <FolderPlusIcon size={keyIconSize} />
+    </ToolbarIconButton>
+  );
   const uploadButton = (
     <ToolbarIconButton
       onClick={() => {
@@ -2658,6 +2683,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <div className="sidebar-files-keys" role="group" aria-label={t("sidebar.fileActions")}>
               {terminalButton}
               {fileManagerButton}
+              {newFileButton}
+              {newFolderButton}
               {uploadButton}
               {refreshButton}
               {ignoredFilesButton()}
@@ -2729,6 +2756,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               <div className="sidebar-files-actions" role="group" aria-label={t("sidebar.fileActions")}>
                 {onOpenTerminal && terminalButton}
                 {fileManagerButton}
+                {newFileButton}
+                {newFolderButton}
                 {uploadButton}
                 {refreshButton}
                 {ignoredFilesButton("sidebar-files-views-start")}

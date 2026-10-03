@@ -15,6 +15,7 @@ import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { uploadFiles, type UploadConflictStrategy, type UploadError, type UploadResponse } from "@/lib/file-upload-client";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
+import { copyToClipboard } from "@/lib/clipboard";
 import type { FileTreeHiddenReason } from "@/lib/file-tree-visibility";
 import { createExpandedPathsMemory } from "@/lib/file-tree-expansion";
 import { useI18n } from "@/hooks/useI18n";
@@ -64,6 +65,8 @@ interface Props {
 
 export interface FileExplorerHandle {
   openUploadPicker: () => void;
+  openNewFile: (targetDir?: string) => void;
+  openNewFolder: (targetDir?: string) => void;
 }
 
 type UploadPhase = "idle" | "checking" | "uploading";
@@ -205,6 +208,7 @@ export function TreeNode({
   cwd,
   onOpenFile,
   onAtMention,
+  onNodeContextMenu,
   expandedPaths,
   onToggleExpanded,
   refreshToken,
@@ -220,6 +224,7 @@ export function TreeNode({
   cwd: string;
   onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
+  onNodeContextMenu?: (node: FileNode, event: React.MouseEvent) => void;
   expandedPaths: Set<string>;
   onToggleExpanded: (fullPath: string, open: boolean) => void;
   refreshToken?: string;
@@ -337,6 +342,13 @@ export function TreeNode({
     <div>
       <div
         onClick={handleClick}
+        onContextMenu={(e) => {
+          if (onNodeContextMenu) {
+            e.preventDefault();
+            e.stopPropagation();
+            onNodeContextMenu(node, e);
+          }
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
@@ -546,6 +558,7 @@ export function TreeNode({
               cwd={cwd}
               onOpenFile={onOpenFile}
               onAtMention={onAtMention}
+              onNodeContextMenu={onNodeContextMenu}
               expandedPaths={expandedPaths}
               onToggleExpanded={onToggleExpanded}
               refreshToken={refreshToken}
@@ -917,11 +930,132 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     void prepareUpload(files);
   }, [prepareUpload]);
 
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    targetDir: string;
+    node?: FileNode;
+  } | null>(null);
+
+  const promptNewFile = useCallback(async (dir?: string) => {
+    const targetDir = dir || cwd;
+    const relDir = getRelativeFilePath(targetDir, cwd);
+    const dirLabel = relDir ? `“${relDir}”` : t("sidebar.useDefaultDirectory").replace("…", "");
+    const input = window.prompt(`${t("files.createFilePrompt")}\n(${dirLabel})`);
+    if (!input) return;
+    const trimmed = input.trim().replace(/^\/+/, "");
+    if (!trimmed) {
+      alert(t("files.nameRequired"));
+      return;
+    }
+    try {
+      const res = await fetch(`/api/files/${encodeFilePathForApi(targetDir)}?type=create-file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) throw await responseError(res, "Failed to create file");
+      const data = await res.json() as { path: string; name: string };
+      const createdDir = getFileDirectory(data.path);
+      setExpandedPaths((prev) => {
+        const next = new Set(prev);
+        next.add(targetDir);
+        next.add(createdDir);
+        return next;
+      });
+      setTreeRefreshKey((k) => k + 1);
+      onOpenFile(data.path, data.name);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  }, [cwd, onOpenFile, t]);
+
+  const promptNewFolder = useCallback(async (dir?: string) => {
+    const targetDir = dir || cwd;
+    const relDir = getRelativeFilePath(targetDir, cwd);
+    const dirLabel = relDir ? `“${relDir}”` : t("sidebar.useDefaultDirectory").replace("…", "");
+    const input = window.prompt(`${t("files.createFolderPrompt")}\n(${dirLabel})`);
+    if (!input) return;
+    const trimmed = input.trim().replace(/^\/+|\/+$/g, "");
+    if (!trimmed) {
+      alert(t("files.nameRequired"));
+      return;
+    }
+    try {
+      const res = await fetch(`/api/files/${encodeFilePathForApi(targetDir)}?type=create-dir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) throw await responseError(res, "Failed to create directory");
+      const data = await res.json() as { path: string; name: string };
+      setExpandedPaths((prev) => {
+        const next = new Set(prev);
+        next.add(targetDir);
+        next.add(data.path);
+        return next;
+      });
+      setTreeRefreshKey((k) => k + 1);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  }, [cwd, t]);
+
+  const confirmDeleteNode = useCallback(async (node: FileNode) => {
+    const confirmMsg = t("files.deleteConfirm", { name: node.name });
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      const res = await fetch(`/api/files/${encodeFilePathForApi(node.fullPath)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw await responseError(res, "Failed to delete");
+      setTreeRefreshKey((k) => k + 1);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  }, [t]);
+
   useImperativeHandle(ref, () => ({
     openUploadPicker() {
       if (!uploadBusy) uploadInputRef.current?.click();
     },
-  }), [uploadBusy]);
+    openNewFile(targetDir?: string) {
+      void promptNewFile(targetDir);
+    },
+    openNewFolder(targetDir?: string) {
+      void promptNewFolder(targetDir);
+    },
+  }), [promptNewFile, promptNewFolder, uploadBusy]);
+
+  const handleNodeContextMenu = useCallback((node: FileNode, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const targetDir = node.isDir ? node.fullPath : getFileDirectory(node.fullPath);
+    const menuWidth = 180;
+    const menuHeight = 180;
+    const x = Math.max(10, Math.min(e.clientX, window.innerWidth - menuWidth - 10));
+    const y = Math.max(10, Math.min(e.clientY, window.innerHeight - menuHeight - 10));
+    setContextMenu({ x, y, node, targetDir });
+  }, []);
+
+  const handleBackgroundContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const menuWidth = 180;
+    const menuHeight = 140;
+    const x = Math.max(10, Math.min(e.clientX, window.innerWidth - menuWidth - 10));
+    const y = Math.max(10, Math.min(e.clientY, window.innerHeight - menuHeight - 10));
+    setContextMenu({ x, y, targetDir: cwd });
+  }, [cwd]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+    return () => {
+      window.removeEventListener("click", close);
+    };
+  }, [contextMenu]);
 
   useEffect(() => {
     onUploadBusyChange?.(uploadBusy);
@@ -1177,6 +1311,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                     cwd={cwd}
                     onOpenFile={onOpenFile}
                     onAtMention={onAtMention}
+                    onNodeContextMenu={handleNodeContextMenu}
                     expandedPaths={searchExpanded}
                     onToggleExpanded={(fullPath, open) => {
                       setSearchExpanded((prev) => {
@@ -1228,7 +1363,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       )}
 
       {(changesCollapsed || gitFiles.length === 0) && (!fileSearchOpen || !hasSearchQuery) && (
-        <div style={{ padding: "2px 4px" }}>
+        <div
+          onContextMenu={handleBackgroundContextMenu}
+          style={{ padding: "2px 4px", minHeight: "100%" }}
+        >
           {loading ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
           ) : error ? (
@@ -1242,6 +1380,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 cwd={cwd}
                 onOpenFile={onOpenFile}
                 onAtMention={onAtMention}
+                onNodeContextMenu={handleNodeContextMenu}
                 expandedPaths={expandedPaths}
                 onToggleExpanded={handleToggleExpanded}
                 refreshToken={refreshToken}
@@ -1257,6 +1396,231 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
               {t("files.noFiles")}
             </div>
+          )}
+        </div>
+      )}
+
+      {contextMenu && (
+        <div
+          role="menu"
+          aria-label="File actions"
+          style={{
+            position: "fixed",
+            left: contextMenu.x,
+            top: contextMenu.y,
+            zIndex: 1000,
+            minWidth: 175,
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            boxShadow: "0 6px 20px rgba(0,0,0,0.22), 0 1px 3px rgba(0,0,0,0.12)",
+            padding: "5px 0",
+            display: "flex",
+            flexDirection: "column",
+            fontSize: 12,
+            userSelect: "none",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              const dir = contextMenu.targetDir;
+              setContextMenu(null);
+              void promptNewFile(dir);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              padding: "7px 12px",
+              border: "none",
+              background: "transparent",
+              color: "var(--text)",
+              fontSize: 12,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            <span style={{ fontSize: 13, lineHeight: 1 }}>📄</span>
+            <span>{t("files.newFile")}</span>
+          </button>
+
+          <button
+            role="menuitem"
+            onClick={() => {
+              const dir = contextMenu.targetDir;
+              setContextMenu(null);
+              void promptNewFolder(dir);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              width: "100%",
+              padding: "7px 12px",
+              border: "none",
+              background: "transparent",
+              color: "var(--text)",
+              fontSize: 12,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          >
+            <span style={{ fontSize: 13, lineHeight: 1 }}>📁</span>
+            <span>{t("files.newFolder")}</span>
+          </button>
+
+          {contextMenu.node ? (
+            <>
+              <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+
+              <button
+                role="menuitem"
+                onClick={() => {
+                  const node = contextMenu.node!;
+                  setContextMenu(null);
+                  void confirmDeleteNode(node);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "100%",
+                  padding: "7px 12px",
+                  border: "none",
+                  background: "transparent",
+                  color: "#ef4444",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <span style={{ fontSize: 13, lineHeight: 1 }}>🗑️</span>
+                <span>{contextMenu.node.isDir ? t("files.deleteFolder") : t("files.deleteFile")}</span>
+              </button>
+
+              <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+
+              <button
+                role="menuitem"
+                onClick={() => {
+                  const node = contextMenu.node!;
+                  setContextMenu(null);
+                  void copyToClipboard(getRelativeFilePath(node.fullPath, cwd));
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "100%",
+                  padding: "7px 12px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--text)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <span style={{ fontSize: 13, lineHeight: 1 }}>📋</span>
+                <span>{t("files.copyRelativePath")}</span>
+              </button>
+
+              {onAtMention && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    const node = contextMenu.node!;
+                    setContextMenu(null);
+                    onAtMention(getRelativeFilePath(node.fullPath, cwd), node.isDir);
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    width: "100%",
+                    padding: "7px 12px",
+                    border: "none",
+                    background: "transparent",
+                    color: "var(--accent)",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  <MentionIcon />
+                  <span>{t("files.mention")}</span>
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setContextMenu(null);
+                  if (!uploadBusy) uploadInputRef.current?.click();
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "100%",
+                  padding: "7px 12px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--text)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <span style={{ fontSize: 13, lineHeight: 1 }}>⬆️</span>
+                <span>{t("sidebar.uploadFiles")}</span>
+              </button>
+
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setContextMenu(null);
+                  setTreeRefreshKey((k) => k + 1);
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "100%",
+                  padding: "7px 12px",
+                  border: "none",
+                  background: "transparent",
+                  color: "var(--text)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+              >
+                <span style={{ fontSize: 13, lineHeight: 1 }}>🔄</span>
+                <span>{t("sidebar.refresh")}</span>
+              </button>
+            </>
           )}
         </div>
       )}
