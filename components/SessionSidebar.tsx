@@ -1243,6 +1243,24 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [currentWorktreePath]);
 
+  const handleRemoveProject = useCallback(async (project: ProjectChoice) => {
+    const displayRoot = homeDir && project.root.startsWith(homeDir) ? `~${project.root.slice(homeDir.length)}` : project.root;
+    if (!window.confirm(t("sidebar.deleteWorkspaceConfirm", { path: displayRoot }))) return;
+    try {
+      const res = await fetch("/api/sessions/workspace", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ root: project.root, projectKey: project.key }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (selectedProject?.key === project.key) await handleDefaultCwd();
+      await loadSessions(false, true);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    }
+  }, [handleDefaultCwd, homeDir, loadSessions, selectedProject, t]);
+
   const refreshWorktrees = useCallback(() => setWtRefreshKey((k) => k + 1), []);
 
   // The files tab's picks move the sidebar's cwd, with the identity the
@@ -2744,6 +2762,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               onOpenFolder={handleCustomPathClick}
               onRefreshWorktrees={refreshWorktrees}
               onCreateWorktree={createWorktree}
+              onRemoveProject={handleRemoveProject}
               onRemoveWorktree={handleRemoveWorktree}
             />
             {/* The files tab's keys, under the picker. Always the same

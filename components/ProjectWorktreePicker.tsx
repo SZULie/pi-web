@@ -85,6 +85,8 @@ interface Props {
   onOpenFolder: (opener: HTMLElement | null) => void;
   onRefreshWorktrees: () => void;
   onCreateWorktree: (project: ProjectChoice, branch: string) => Promise<{ path: string } | { error: string }>;
+  /** Given, each project has a remove button that deletes only its session history. */
+  onRemoveProject?: (project: ProjectChoice) => Promise<void>;
   /** Given, each linked checkout has a remove button (the files tab). */
   onRemoveWorktree?: (project: ProjectChoice, path: string, force: boolean) => Promise<WorktreeRemoval>;
 }
@@ -214,6 +216,7 @@ export function ProjectWorktreePicker({
   onOpenFolder,
   onRefreshWorktrees,
   onCreateWorktree,
+  onRemoveProject,
   onRemoveWorktree,
 }: Props) {
   const { t } = useI18n();
@@ -369,6 +372,12 @@ export function ProjectWorktreePicker({
         title: choice.root,
         checked: choice.key === project?.key,
         badge: activity ? <ActivitySummary running={activity.running} unread={activity.unread} t={t} /> : undefined,
+        secondary: onRemoveProject ? {
+          label: t("sidebar.deleteWorkspace"),
+          icon: <TrashIcon size={12} />,
+          danger: true,
+          onSelect: () => { void onRemoveProject(choice); },
+        } : undefined,
         // The owners ignore a pick of the folder already in use.
         onSelect: () => {
           if (choice.key !== project?.key || !worktrees) onPick({ cwd: choice.root, projectKey: choice.key, projectRoot: choice.root }, "project");

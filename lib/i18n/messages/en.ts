@@ -344,6 +344,8 @@ export const enLocale: LocalePlugin = {
     "sidebar.newActivity": "New activity",
     "sidebar.newSessionActivity": "New session activity",
     "sidebar.deleteSession": "Delete {title}?",
+    "sidebar.deleteWorkspace": "Remove workspace",
+    "sidebar.deleteWorkspaceConfirm": "Are you sure you want to remove workspace {path}?\n(This will only delete session history associated with this workspace; project files will NOT be deleted)",
     "sidebar.rename": "Rename",
     "sidebar.delete": "Delete",
     "sidebar.messagesCount": "{count} msgs",

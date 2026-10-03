@@ -344,6 +344,8 @@ export const zhCNLocale: LocalePlugin = {
     "sidebar.newActivity": "有新活动",
     "sidebar.newSessionActivity": "会话有新活动",
     "sidebar.deleteSession": "删除 {title}？",
+    "sidebar.deleteWorkspace": "移除工作区",
+    "sidebar.deleteWorkspaceConfirm": "确定要从列表中移除工作区 {path} 吗？\n（这只会清除与此工作区关联的历史会话记录，绝不会删除您项目目录中的任何代码和文件）",
     "sidebar.rename": "重命名",
     "sidebar.delete": "删除",
     "sidebar.messagesCount": "{count} 条消息",

@@ -344,6 +344,8 @@ export const zhTWLocale: LocalePlugin = {
     "sidebar.newActivity": "有新活動",
     "sidebar.newSessionActivity": "工作階段有新活動",
     "sidebar.deleteSession": "刪除 {title}？",
+    "sidebar.deleteWorkspace": "移除工作區",
+    "sidebar.deleteWorkspaceConfirm": "確定要從清單中移除工作區 {path} 嗎？\n（這只會清除與此工作區關聯的歷史工作階段記錄，絕不會刪除您專案目錄中的任何程式碼和檔案）",
     "sidebar.rename": "重新命名",
     "sidebar.delete": "刪除",
     "sidebar.messagesCount": "{count} 則訊息",
