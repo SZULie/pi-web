@@ -41,6 +41,7 @@ import {
   saveSidebarTab,
   type SidebarTab,
 } from "@/lib/sidebar-prefs";
+import { copyToClipboard, formatSessionResumeCommand } from "@/lib/clipboard";
 import {
   forkFailureMessage,
   projectNameMenuEntries,
@@ -306,6 +307,7 @@ const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
   unpin: "sidebar.unpin",
   rename: "sidebar.rename",
   fork: "sidebar.fork",
+  "copy-command": "sidebar.copyCommand",
   "mark-read": "sidebar.markRead",
   "mark-unread": "sidebar.markUnread",
   archive: "sidebar.archive",
@@ -319,6 +321,7 @@ function sessionActionIcon(id: SessionMenuActionId): ReactNode {
     case "unpin": return <PinOffIcon />;
     case "rename": return <PencilIcon />;
     case "fork": return <ForkIcon />;
+    case "copy-command": return <TerminalIcon />;
     case "mark-read": return <DotOutlineIcon />;
     case "mark-unread": return <DotIcon />;
     case "archive": return <ArchiveIcon />;
@@ -1904,6 +1907,11 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, [loadSessions, showToast, t]);
 
+  const copySessionCommand = useCallback(async (family: SessionFamily) => {
+    const ok = await copyToClipboard(formatSessionResumeCommand(family.root));
+    showToast(ok ? t("sidebar.copiedCommand") : t("sidebar.copyCommandFailed"));
+  }, [showToast, t]);
+
   const runSessionAction = (id: SessionMenuActionId, row: SessionRow, shiftKey: boolean) => {
     const { family } = row;
     switch (id) {
@@ -1911,6 +1919,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       case "unpin": setFamilyPinned(family, false); break;
       case "rename": startRename(family); break;
       case "fork": void forkFamily(row); break;
+      case "copy-command": void copySessionCommand(family); break;
       case "mark-read": markFamilyRead(family, true); break;
       case "mark-unread": markFamilyRead(family, false); break;
       case "archive": archiveFamily(family); break;

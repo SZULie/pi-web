@@ -1216,6 +1216,7 @@ test("focus that went away with the archive view, a toast or a delete confirmati
 
 test("Fork copies the row's session on the server and opens the copy where its row is", () => {
   assert.match(source, /case "fork": void forkFamily\(row\); break;/);
+  assert.match(source, /case "copy-command": void copySessionCommand\(family\); break;/);
   const fork = callbackBody("forkFamily");
   // One per session at a time (another session's Fork goes ahead), never for
   // a transient session, never through an AgentSession.
@@ -1274,7 +1275,9 @@ test("Fork copies the row's session on the server and opens the copy where its r
   assert.equal((source.match(/onRevealHandled=\{handleRevealHandled\}/g) ?? []).length, 1);
   assert.doesNotMatch(source.slice(source.indexOf("const treeProps = {"), source.indexOf("} as const;")), /reveal/);
   assert.match(source, /fork: "sidebar\.fork",/);
+  assert.match(source, /"copy-command": "sidebar\.copyCommand",/);
   assert.match(source, /case "fork": return <ForkIcon \/>;/);
+  assert.match(source, /case "copy-command": return <TerminalIcon \/>;/);
 });
 
 test("new projects are saved to the project order once, quietly, after real state and details have loaded", () => {
