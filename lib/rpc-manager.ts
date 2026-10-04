@@ -1105,9 +1105,22 @@ export class AgentSessionWrapper {
 
       case "compact": {
         try {
-          return await this.withFinalIdleReset(() =>
-            this.inner.compact(command.customInstructions as string | undefined)
-          );
+          return await this.withFinalIdleReset(async () => {
+            const runner = this.inner.extensionRunner;
+            const hasWrapup = runner?.getRegisteredCommands?.().some(
+              (c) => c.invocationName === "ctx-wrapup",
+            );
+            if (hasWrapup && typeof runner?.getCommand === "function" && typeof runner?.createCommandContext === "function") {
+              const commandObj = runner.getCommand("ctx-wrapup");
+              const commandCtx = runner.createCommandContext();
+              if (commandObj && commandCtx) {
+                const instructions = typeof command.customInstructions === "string" ? command.customInstructions.trim() : "";
+                await commandObj.handler(instructions, commandCtx);
+                return { success: true, method: "magic-context" };
+              }
+            }
+            return await this.inner.compact(command.customInstructions as string | undefined);
+          });
         } finally {
           invalidateSessionListCache();
         }
