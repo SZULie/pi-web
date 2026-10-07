@@ -65,3 +65,27 @@ test("creates new file and folder, then deletes them", async () => {
   assert.equal(deleteDirRes.status, 200);
   assert.ok(!fs.existsSync(path.join(dir, "docs")));
 });
+
+test("uploads files without 25MB or 100MB size limit", async () => {
+  const dir = path.join(root, "project-upload");
+  fs.mkdirSync(dir, { recursive: true });
+
+  const segments = dir.replace(/\\/g, "/").split("/").filter(Boolean);
+
+  // 26MB > 25MB
+  const largeContent = Buffer.alloc(26 * 1024 * 1024, "a");
+  const form = new FormData();
+  form.append("files", new Blob([largeContent]), "large-dataset.bin");
+
+  const uploadReq = new NextRequest("http://localhost/api/files/x?type=upload&conflict=overwrite", {
+    method: "POST",
+    headers: { host: "localhost" },
+    body: form,
+  });
+  const uploadRes = await POST(uploadReq, { params: Promise.resolve({ path: segments }) });
+  assert.equal(uploadRes.status, 200);
+  const data = await uploadRes.json();
+  assert.deepEqual(data.uploaded, ["large-dataset.bin"]);
+  assert.ok(fs.existsSync(path.join(dir, "large-dataset.bin")));
+  assert.equal(fs.statSync(path.join(dir, "large-dataset.bin")).size, 26 * 1024 * 1024);
+});
