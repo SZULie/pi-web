@@ -2304,6 +2304,16 @@ export function AppShell() {
                   loading={systemInfoLoading}
                   tools={systemTools}
                   translate={translate}
+                  onToolsUpdated={async () => {
+                    if (systemInfoLoaderRef.current) {
+                      setSystemInfoLoading(true);
+                      try {
+                        await systemInfoLoaderRef.current();
+                      } finally {
+                        setSystemInfoLoading(false);
+                      }
+                    }
+                  }}
                 />
               )}
               {activeTopPanel === "session" && (

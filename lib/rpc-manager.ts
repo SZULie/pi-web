@@ -29,6 +29,7 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { applyToolOverridesToSession, getToolOverrides } from "./tool-overrides";
 import {
   createSubagentExtension,
   preferPiWebSubagentExtension,
@@ -2133,6 +2134,15 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
   return getRegistry().get(sessionId);
 }
 
+export async function applyToolOverridesToRunningSessions(): Promise<void> {
+  const overrides = await getToolOverrides();
+  for (const sessionWrapper of getRegistry().values()) {
+    if (sessionWrapper.inner) {
+      applyToolOverridesToSession(sessionWrapper.inner, overrides);
+    }
+  }
+}
+
 export interface SetRpcSessionToolsResult {
   session: AgentSessionWrapper;
   sessionId: string;
@@ -2576,6 +2586,13 @@ export async function startRpcSession(
         ? subagentToolOptions(subagentResources)
         : toolsOption !== undefined ? { tools: toolsOption } : {}),
     });
+
+    try {
+      const toolOverrides = await getToolOverrides();
+      applyToolOverridesToSession(inner, toolOverrides);
+    } catch (error) {
+      console.error("[pi-web] Failed to apply tool overrides to new session:", error);
+    }
 
     // A pinned selection replaces only the coding tools of the SDK's initial loadout, which
     // already holds the extension tools pi activates on registration and whatever
