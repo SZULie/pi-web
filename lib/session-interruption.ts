@@ -312,12 +312,20 @@ export function inspectSessionInterruption(
     };
   }
 
-  // Case 3: Leaf is an assistant message that was calling tools, was aborted, or did not stop normally
+  // Case 3: Leaf is an assistant message that was calling tools, was aborted, did not stop normally, or had empty content
   if (msg.role === "assistant") {
     const isToolUse = msg.stopReason === "toolUse";
     const isAborted = msg.stopReason === "aborted";
     const isIncomplete = !msg.stopReason || msg.stopReason !== "stop";
-    if (isToolUse || isAborted || isIncomplete || wasInterruptedByRestart) {
+    const isEmpty =
+      !msg.content ||
+      (Array.isArray(msg.content) &&
+        !msg.content.some(
+          (b: any) =>
+            (b.type === "text" && typeof b.text === "string" && b.text.trim().length > 0) ||
+            b.type === "toolCall",
+        ));
+    if (isToolUse || isAborted || isIncomplete || isEmpty || wasInterruptedByRestart) {
       let preview = "";
       if (Array.isArray(msg.content)) {
         const textBlock = msg.content.find((b: { type: string }) => b.type === "text") as { text: string } | undefined;
@@ -326,7 +334,7 @@ export function inspectSessionInterruption(
       return {
         canResume: true,
         wasInterruptedByRestart,
-        turnType: isAborted ? "aborted_assistant" : "incomplete_assistant",
+        turnType: isAborted ? "aborted_assistant" : isEmpty ? "incomplete_assistant" : "incomplete_assistant",
         suggestedPrompt: "继续",
         lastMessagePreview: preview.slice(0, 100),
       };
