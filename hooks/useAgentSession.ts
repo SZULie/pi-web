@@ -1928,8 +1928,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, []);
 
-  const resumeInterruptedTurn = useCallback(async (targetSid?: string) => {
-    const sid = targetSid || sessionIdRef.current;
+  const resumeInterruptedTurn = useCallback(async (targetSid?: string | unknown) => {
+    const sid = (typeof targetSid === "string" && targetSid ? targetSid : null) || sessionIdRef.current;
     if (!sid) return;
     if (typeof window !== "undefined") {
       try { window.sessionStorage?.removeItem(`manual_abort_${sid}`); } catch {}

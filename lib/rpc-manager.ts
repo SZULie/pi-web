@@ -2019,6 +2019,7 @@ declare global {
 }
 
 export async function autoResumeInterruptedSessionsOnStartup(): Promise<void> {
+  if (process.env.NODE_ENV === "test") return;
   const reconciled = reconcileActiveRunsOnStartupSync();
   if (reconciled.length === 0) return;
   console.log(`[pi-web] Found ${reconciled.length} interrupted session(s) from previous run. Scheduling auto-resume...`);

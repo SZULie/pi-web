@@ -1830,7 +1830,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
               <button
                 type="button"
-                onClick={onResumeTurn}
+                onClick={() => onResumeTurn?.()}
                 style={{
                   background: "var(--accent)", color: "#fff",
                   border: "none", borderRadius: 4, padding: "4px 10px",
