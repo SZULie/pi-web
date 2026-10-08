@@ -277,6 +277,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     isNew,
     editEntryId,
     showScrollToBottom,
+    interruptedTurn,
+    resumeInterruptedTurn,
+    dismissInterruptedTurn,
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleEditContent, cancelEdit, handleModelChange,
@@ -966,6 +969,9 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       soundEnabled={soundEnabled}
       onSoundToggle={onSoundToggle}
       onAudioUnlock={unlockAudio}
+      interruptedTurn={interruptedTurn}
+      onResumeTurn={resumeInterruptedTurn}
+      onDismissInterruption={dismissInterruptedTurn}
       draftKey={session?.id ?? newSessionDraftKey ?? undefined}
       cwd={session?.cwd ?? newSessionCwd}
       onAttachFiles={onAttachFiles}

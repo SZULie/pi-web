@@ -36,6 +36,10 @@ import {
   syncSessionContextLimitToMagicContext,
 } from "./session-context-limits";
 import {
+  clearInterruptedSession,
+  recordInterruptedSessions,
+} from "./session-interruption";
+import {
   createSubagentExtension,
   preferPiWebSubagentExtension,
 } from "./subagent-extension";
@@ -881,11 +885,13 @@ export class AgentSessionWrapper {
             // the internal callback. This waits for the run, but never acks early.
             acceptPreflight();
             finishPrompt();
+            void clearInterruptedSession(this.sessionId);
             if (!streamingBehavior) this.emit(this.promptDoneEvent());
           }, (error) => {
             rejectPreflight(error);
             finishPrompt();
             invalidateSessionListCache();
+            void clearInterruptedSession(this.sessionId);
             // A preflight rejection is returned by the POST itself. Only an
             // unexpected failure after acceptance needs the asynchronous event.
             if (preflightAccepted) {
@@ -2012,6 +2018,12 @@ function getRegistry(): Map<string, AgentSessionWrapper> {
     const destroy = () => globalThis.__piSessions?.forEach((session) => session.destroy());
     const shutdown = () => {
       const sessions = Array.from(globalThis.__piSessions?.values() ?? []);
+      const runningRecords = sessions
+        .filter((s) => s.isRunning())
+        .map((s) => ({ sessionId: s.sessionId, sessionFile: s.sessionFile, reason: "service_restart" }));
+      if (runningRecords.length > 0) {
+        void recordInterruptedSessions(runningRecords);
+      }
       void Promise.allSettled(sessions.map((session) => session.shutdown()));
     };
     // Node cannot await work from an exit handler; direct destruction starts

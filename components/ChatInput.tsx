@@ -85,6 +85,9 @@ interface Props {
   /** Saves a reasoning level as the default for new sessions and selects it here. */
   onSetDefaultThinkingLevel?: (level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") => void;
   retryInfo?: { attempt: number; maxAttempts: number; errorMessage?: string } | null;
+  interruptedTurn?: { canResume: boolean; wasInterruptedByRestart: boolean; turnType?: string; suggestedPrompt?: string } | null;
+  onResumeTurn?: () => void;
+  onDismissInterruption?: () => void;
   queuedMessages?: QueuedMessages | null;
   inputHistory?: string[];
   onRecallQueue?: () => void;
@@ -652,7 +655,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onCompact, onAbortCompaction, isCompacting, compactError, onDismissCompactError, compactResult, toolPreset, onToolPresetChange,
   thinkingLevel, isAutoThinkingSelection = false, onThinkingLevelChange, availableThinkingLevels, thinkingLevelMap,
   savedDefaultThinkingLevel, onSetDefaultThinkingLevel,
-  retryInfo, queuedMessages, inputHistory = [], onRecallQueue,
+  retryInfo, interruptedTurn, onResumeTurn, onDismissInterruption, queuedMessages, inputHistory = [], onRecallQueue,
   slashCommands, slashCommandsLoading, onLoadSlashCommands,
   onBuiltinCommand,
   soundEnabled, onSoundToggle, onAudioUnlock,
@@ -1807,6 +1810,51 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             {queuedMessages?.followUp.map((text, i) => (
               <QueuedMessageRow key={`followup-${i}`} kind="follow-up" text={text} />
             ))}
+          </div>
+        )}
+        {/* Interrupted turn recovery card */}
+        {interruptedTurn?.canResume && !isStreaming && (
+          <div style={{
+            marginBottom: 8, padding: "7px 12px",
+            background: "color-mix(in srgb, var(--accent) 12%, var(--bg-panel))",
+            border: "1px solid var(--accent)",
+            borderRadius: 8, fontSize: 12, color: "var(--text)",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <span style={{ fontSize: 13 }}>⚠️</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
+                {t("chat.interruptedTurnNotice")}
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={onResumeTurn}
+                style={{
+                  background: "var(--accent)", color: "#fff",
+                  border: "none", borderRadius: 4, padding: "4px 10px",
+                  cursor: "pointer", fontSize: 11, fontWeight: 600,
+                  display: "flex", alignItems: "center", gap: 4,
+                }}
+              >
+                <span>🔄</span>
+                <span>{t("chat.resumeTurn")}</span>
+              </button>
+              {onDismissInterruption && (
+                <button
+                  type="button"
+                  onClick={onDismissInterruption}
+                  style={{
+                    background: "transparent", color: "var(--text-dim)",
+                    border: "none", cursor: "pointer", fontSize: 12, padding: "4px",
+                  }}
+                  title={t("tools.cancel")}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
         )}
         {/* Retry banner */}

@@ -384,6 +384,12 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [currentModelOverride, setCurrentModelOverride] = useState<{ provider: string; modelId: string } | null>(null);
+  const [interruptedTurn, setInterruptedTurn] = useState<{
+    canResume: boolean;
+    wasInterruptedByRestart: boolean;
+    turnType?: string;
+    suggestedPrompt?: string;
+  } | null>(null);
   const [liveModel, setLiveModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [pendingModel, setPendingModel] = useState<{ provider: string; modelId: string } | null>(null);
   const [modelSwitching, setModelSwitching] = useState(false);
@@ -749,7 +755,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
       messagesLoaded = true;
       if (showLoading) setLoading(false);
-      if (!includeState) return null;
+      if (!includeState) {
+        const interruption = (d as any).interruption;
+        if (interruption?.canResume) {
+          setInterruptedTurn(interruption);
+        } else {
+          setInterruptedTurn(null);
+        }
+        return null;
+      }
 
       try {
         const runId = promptRunIdRef.current;
@@ -761,6 +775,18 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         const liveState = agentState.state;
         syncLiveModel(liveState);
+
+        const interruption = (d as any).interruption;
+        if (interruption?.canResume && !agentState.running) {
+          if (interruption.wasInterruptedByRestart) {
+            void resumeInterruptedTurn(sid);
+            addNotice({ type: "info", message: "Automatically resumed interrupted turn" });
+          } else {
+            setInterruptedTurn(interruption);
+          }
+        } else {
+          setInterruptedTurn(null);
+        }
         if (liveState) {
           applyContextUsage(liveState, sid, runId, usageRequestId);
           if (liveState.systemPrompt !== undefined) setSystemPrompt(liveState.systemPrompt ?? null);
@@ -1710,6 +1736,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   handleAgentEventRef.current = handleAgentEvent;
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
+    setInterruptedTurn(null);
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
@@ -1875,6 +1902,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   executeBashRef.current = executeBash;
 
   const handleAbort = useCallback(async () => {
+    setInterruptedTurn(null);
     const sid = sessionIdRef.current;
     if (!sid) return;
     if (bashRunningRef.current) {
@@ -1891,6 +1919,27 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       console.error("Failed to abort:", e);
     }
   }, []);
+
+  const resumeInterruptedTurn = useCallback(async (targetSid?: string) => {
+    const sid = targetSid || sessionIdRef.current;
+    if (!sid) return;
+    try {
+      setAgentRunning(true);
+      setAgentPhase({ kind: "waiting_model" });
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/resume`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(err.error || "Resume failed");
+      }
+      setInterruptedTurn(null);
+    } catch (error) {
+      console.error("[pi-web] Resume failed:", error);
+      setAgentRunning(false);
+      addNotice({ type: "error", message: error instanceof Error ? error.message : "Failed to resume" });
+    }
+  }, [addNotice]);
 
   const handleFork = useCallback(async (entryId: string) => {
     if (bashRunningRef.current) return;
@@ -2779,6 +2828,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     // Present only while a history edit is pending.
     cancelEdit: editEntryId ? cancelEdit : undefined,
     addNotice,
+    interruptedTurn,
+    resumeInterruptedTurn,
+    dismissInterruptedTurn: () => setInterruptedTurn(null),
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
