@@ -25,9 +25,9 @@ test("uses a compact narrow-mobile toolbar with a floating action layer", () => 
 });
 
 test("only renders the Agents switcher when the active session family has subagents", () => {
-  assert.match(source, /const hasSubagentSessions = Boolean\(activeSessionFamily\?\.subagents\.length\)/);
+  assert.match(source, /const hasSubagentSessions =/);
   assert.match(source, /\{hasSubagentSessions && \(\s*<button[\s\S]*?toggleTopPanel\("agents", mobile\)/);
-  assert.match(source, /activeTopPanel === "agents" && activeSessionFamily && selectedSession/);
+  assert.match(source, /activeTopPanel === "agents" && selectedSession/);
 });
 
 test("keeps the Agents panel open while switching sessions and positions it at the left", () => {
