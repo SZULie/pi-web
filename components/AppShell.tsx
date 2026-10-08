@@ -1685,17 +1685,19 @@ export function AppShell() {
               <rect x="5" y="7" width="14" height="11" rx="2" /><path d="M9 11h.01M15 11h.01M9 15h6M12 7V4M10 4h4" />
             </svg>
             {!mobile && <span>{translate("agentSwitcher.title")}</span>}
-            <span
-              aria-hidden="true"
-              style={{
-                minWidth: 15, height: 15, padding: "0 4px", display: "grid", placeItems: "center",
-                borderRadius: 7, background: "var(--bg-selected)", color: "var(--accent)",
-                fontSize: 10, lineHeight: 1, fontVariantNumeric: "tabular-nums",
-                ...(mobile ? { position: "absolute", top: 2, right: 2, minWidth: 13, height: 13, padding: "0 3px", fontSize: 9 } : {}),
-              }}
-            >
-              {activeSessionFamily?.subagents?.length ?? 0}
-            </span>
+            {Boolean(activeSessionFamily?.subagents?.length) && (
+              <span
+                aria-hidden="true"
+                style={{
+                  minWidth: 15, height: 15, padding: "0 4px", display: "grid", placeItems: "center",
+                  borderRadius: 7, background: "var(--bg-selected)", color: "var(--accent)",
+                  fontSize: 10, lineHeight: 1, fontVariantNumeric: "tabular-nums",
+                  ...(mobile ? { position: "absolute", top: 2, right: 2, minWidth: 13, height: 13, padding: "0 3px", fontSize: 9 } : {}),
+                }}
+              >
+                {activeSessionFamily!.subagents.length}
+              </span>
+            )}
           </button>
         )}
         {sessionHasBranches && (mobile ? (

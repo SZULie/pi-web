@@ -1,9 +1,17 @@
 import { homedir } from "os";
 import path from "path";
 import fs from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, unlinkSync } from "fs";
 import type { SessionEntry } from "./types";
 import { sliceActiveBranch } from "./session-reader";
+
+export interface ActiveRunRecord {
+  sessionId: string;
+  startedAt: number;
+  sessionFile?: string;
+}
+
+export type ActiveRunsMap = Record<string, ActiveRunRecord>;
 
 export interface InterruptedSessionRecord {
   sessionId: string;
@@ -22,9 +30,164 @@ export interface InterruptionInspection {
   lastMessagePreview?: string;
 }
 
+export function getActiveRunsFilePath(): string {
+  return path.join(homedir(), ".pi-web", "active-runs.json");
+}
+
 export function getInterruptedSessionsFilePath(): string {
   return path.join(homedir(), ".pi-web", "interrupted-sessions.json");
 }
+
+// -------------------------------------------------------------
+// Synchronous Write-Ahead Active Runs Store
+// -------------------------------------------------------------
+
+export function markSessionActiveSync(sessionId: string, sessionFile?: string): void {
+  try {
+    const filePath = getActiveRunsFilePath();
+    const dir = path.dirname(filePath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    let map: ActiveRunsMap = {};
+    if (existsSync(filePath)) {
+      try {
+        const content = readFileSync(filePath, "utf8");
+        map = JSON.parse(content) as ActiveRunsMap;
+        if (typeof map !== "object" || map === null || Array.isArray(map)) {
+          map = {};
+        }
+      } catch {
+        map = {};
+      }
+    }
+    map[sessionId] = {
+      sessionId,
+      startedAt: Date.now(),
+      sessionFile,
+    };
+    const tempFile = path.join(
+      dir,
+      `.active-runs.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+    );
+    writeFileSync(tempFile, JSON.stringify(map, null, 2) + "\n", "utf8");
+    renameSync(tempFile, filePath);
+  } catch (error) {
+    console.error("[pi-web] Failed to synchronously mark session active:", error);
+  }
+}
+
+export function clearSessionActiveSync(sessionId: string): void {
+  try {
+    const filePath = getActiveRunsFilePath();
+    if (!existsSync(filePath)) return;
+    let map: ActiveRunsMap = {};
+    try {
+      const content = readFileSync(filePath, "utf8");
+      map = JSON.parse(content) as ActiveRunsMap;
+      if (typeof map !== "object" || map === null || Array.isArray(map)) return;
+    } catch {
+      return;
+    }
+    if (!map[sessionId]) return;
+    delete map[sessionId];
+
+    if (Object.keys(map).length === 0) {
+      try {
+        unlinkSync(filePath);
+      } catch {}
+      return;
+    }
+
+    const dir = path.dirname(filePath);
+    const tempFile = path.join(
+      dir,
+      `.active-runs.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+    );
+    writeFileSync(tempFile, JSON.stringify(map, null, 2) + "\n", "utf8");
+    renameSync(tempFile, filePath);
+  } catch (error) {
+    console.error("[pi-web] Failed to synchronously clear session active:", error);
+  }
+}
+
+export function getActiveRunsSync(): ActiveRunsMap {
+  const filePath = getActiveRunsFilePath();
+  try {
+    if (!existsSync(filePath)) return {};
+    const content = readFileSync(filePath, "utf8");
+    const json = JSON.parse(content) as ActiveRunsMap;
+    return typeof json === "object" && json !== null && !Array.isArray(json) ? json : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Called on server startup:
+ * Reconciles any active-runs left behind by a previous killed/restarted process,
+ * moves them to interrupted-sessions.json, and clears active-runs.json.
+ */
+export function reconcileActiveRunsOnStartupSync(): InterruptedSessionRecord[] {
+  const activeMap = getActiveRunsSync();
+  const activeKeys = Object.keys(activeMap);
+  if (activeKeys.length === 0) return [];
+
+  const interruptedPath = getInterruptedSessionsFilePath();
+  const dir = path.dirname(interruptedPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  let interruptedMap: InterruptedSessionsMap = {};
+  if (existsSync(interruptedPath)) {
+    try {
+      const content = readFileSync(interruptedPath, "utf8");
+      interruptedMap = JSON.parse(content) as InterruptedSessionsMap;
+      if (typeof interruptedMap !== "object" || interruptedMap === null || Array.isArray(interruptedMap)) {
+        interruptedMap = {};
+      }
+    } catch {
+      interruptedMap = {};
+    }
+  }
+
+  const now = Date.now();
+  const reconciled: InterruptedSessionRecord[] = [];
+  for (const [sid, rec] of Object.entries(activeMap)) {
+    const item: InterruptedSessionRecord = {
+      sessionId: sid,
+      interruptedAt: rec.startedAt || now,
+      sessionFile: rec.sessionFile,
+      reason: "service_restart",
+    };
+    interruptedMap[sid] = item;
+    reconciled.push(item);
+  }
+
+  try {
+    const tempFile = path.join(
+      dir,
+      `.interrupted-sessions.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+    );
+    writeFileSync(tempFile, JSON.stringify(interruptedMap, null, 2) + "\n", "utf8");
+    renameSync(tempFile, interruptedPath);
+  } catch (error) {
+    console.error("[pi-web] Failed to write reconciled interrupted-sessions:", error);
+  }
+
+  // Clear active runs file
+  try {
+    const activePath = getActiveRunsFilePath();
+    if (existsSync(activePath)) unlinkSync(activePath);
+  } catch {}
+
+  return reconciled;
+}
+
+// -------------------------------------------------------------
+// Interrupted Sessions Store
+// -------------------------------------------------------------
 
 let writeLock: Promise<unknown> = Promise.resolve();
 
@@ -149,11 +312,12 @@ export function inspectSessionInterruption(
     };
   }
 
-  // Case 3: Leaf is an assistant message that was aborted or did not stop normally
+  // Case 3: Leaf is an assistant message that was calling tools, was aborted, or did not stop normally
   if (msg.role === "assistant") {
+    const isToolUse = msg.stopReason === "toolUse";
     const isAborted = msg.stopReason === "aborted";
     const isIncomplete = !msg.stopReason || msg.stopReason !== "stop";
-    if (isAborted || isIncomplete || wasInterruptedByRestart) {
+    if (isToolUse || isAborted || isIncomplete || wasInterruptedByRestart) {
       let preview = "";
       if (Array.isArray(msg.content)) {
         const textBlock = msg.content.find((b: { type: string }) => b.type === "text") as { text: string } | undefined;

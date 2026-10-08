@@ -37,6 +37,9 @@ import {
 } from "./session-context-limits";
 import {
   clearInterruptedSession,
+  clearSessionActiveSync,
+  markSessionActiveSync,
+  reconcileActiveRunsOnStartupSync,
   recordInterruptedSessions,
 } from "./session-interruption";
 import {
@@ -828,12 +831,14 @@ export class AgentSessionWrapper {
           const finishPrompt = () => {
             if (promptSettled) return;
             promptSettled = true;
+            clearSessionActiveSync(this.sessionId);
             this.pendingPromptCount = Math.max(0, this.pendingPromptCount - 1);
             this.resetIdleTimer();
             this.notifyAgentRunCompleteIfIdle();
           };
 
           this.pendingPromptCount += 1;
+          markSessionActiveSync(this.sessionId, this.sessionFile);
           // A prompt that may start a run first connects the session's MCP servers and
           // waits for the ones still connecting. The SDK runs before_agent_start before a
           // run has an abort signal, so Stop is honoured here: it ends the wait, and the
@@ -2012,6 +2017,37 @@ declare global {
   var __piStartingSessionCwds: Map<string, number> | undefined;
 }
 
+export async function autoResumeInterruptedSessionsOnStartup(): Promise<void> {
+  const reconciled = reconcileActiveRunsOnStartupSync();
+  if (reconciled.length === 0) return;
+  console.log(`[pi-web] Found ${reconciled.length} interrupted session(s) from previous run. Scheduling auto-resume...`);
+  setTimeout(async () => {
+    for (const rec of reconciled) {
+      try {
+        const filePath = rec.sessionFile || (await resolveSessionPath(rec.sessionId));
+        if (!filePath) continue;
+        const sm = openSessionManager(filePath);
+        const entries = sm.getEntries() as unknown as SessionEntry[];
+        const leafId = sm.getLeafId();
+        const inspection = inspectSessionInterruption(entries, leafId, rec.sessionId, { [rec.sessionId]: rec });
+        if (!inspection.canResume) {
+          await clearInterruptedSession(rec.sessionId);
+          continue;
+        }
+        console.log(`[pi-web] Auto-resuming session ${rec.sessionId} with prompt "${inspection.suggestedPrompt}"...`);
+        const started = await startRpcSession(rec.sessionId, filePath, undefined);
+        await clearInterruptedSession(rec.sessionId);
+        void started.session.send({
+          type: "prompt",
+          message: inspection.suggestedPrompt,
+        });
+      } catch (err) {
+        console.error(`[pi-web] Failed to auto-resume session ${rec.sessionId} on startup:`, err);
+      }
+    }
+  }, 1000);
+}
+
 function getRegistry(): Map<string, AgentSessionWrapper> {
   if (!globalThis.__piSessions) {
     globalThis.__piSessions = new Map();
@@ -2031,6 +2067,12 @@ function getRegistry(): Map<string, AgentSessionWrapper> {
     process.once("exit", destroy);
     process.once("SIGINT", shutdown);
     process.once("SIGTERM", shutdown);
+
+    try {
+      void autoResumeInterruptedSessionsOnStartup();
+    } catch (e) {
+      console.error("[pi-web] Failed to auto-resume runs on startup:", e);
+    }
   }
   return globalThis.__piSessions;
 }

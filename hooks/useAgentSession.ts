@@ -778,7 +778,8 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
         const interruption = (d as any).interruption;
         if (interruption?.canResume && !agentState.running) {
-          if (interruption.wasInterruptedByRestart) {
+          const isManualAbort = typeof window !== "undefined" && window.sessionStorage?.getItem(`manual_abort_${sid}`) === "true";
+          if (!isManualAbort) {
             void resumeInterruptedTurn(sid);
             addNotice({ type: "info", message: "Automatically resumed interrupted turn" });
           } else {
@@ -1737,6 +1738,10 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleSend = useCallback(async (message: string, images?: AttachedImage[]) => {
     setInterruptedTurn(null);
+    const sid = sessionIdRef.current;
+    if (sid && typeof window !== "undefined") {
+      try { window.sessionStorage?.removeItem(`manual_abort_${sid}`); } catch {}
+    }
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !images?.length) return;
     if (agentRunningRef.current || bashRunningRef.current) {
@@ -1904,6 +1909,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const handleAbort = useCallback(async () => {
     setInterruptedTurn(null);
     const sid = sessionIdRef.current;
+    if (sid && typeof window !== "undefined") {
+      try { window.sessionStorage?.setItem(`manual_abort_${sid}`, "true"); } catch {}
+    }
     if (!sid) return;
     if (bashRunningRef.current) {
       try {
@@ -1923,6 +1931,9 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const resumeInterruptedTurn = useCallback(async (targetSid?: string) => {
     const sid = targetSid || sessionIdRef.current;
     if (!sid) return;
+    if (typeof window !== "undefined") {
+      try { window.sessionStorage?.removeItem(`manual_abort_${sid}`); } catch {}
+    }
     try {
       setAgentRunning(true);
       setAgentPhase({ kind: "waiting_model" });
@@ -2830,7 +2841,13 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     addNotice,
     interruptedTurn,
     resumeInterruptedTurn,
-    dismissInterruptedTurn: () => setInterruptedTurn(null),
+    dismissInterruptedTurn: () => {
+      const sid = sessionIdRef.current;
+      if (sid && typeof window !== "undefined") {
+        try { window.sessionStorage?.setItem(`manual_abort_${sid}`, "true"); } catch {}
+      }
+      setInterruptedTurn(null);
+    },
     setNoticePaused: setPausedNoticeId,
     handleToolPresetChange, handleThinkingLevelChange, handleSetDefaultModel, handleSetDefaultThinkingLevel, loadTools, loadSlashCommands, setActiveLeafId, setData, setMessages, loadContext,
     scrollToBottom, scrollUserMsgToTop, scrollToMessage,
