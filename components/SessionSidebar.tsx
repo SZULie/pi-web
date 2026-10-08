@@ -83,6 +83,7 @@ import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeR
 import { SessionSearch } from "./SessionSearch";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
 import { SidebarMenu, type SidebarMenuAnchor, type SidebarMenuItem } from "./SidebarMenu";
+import { SessionContextLimitModal } from "./SessionContextLimitModal";
 import { SidebarToast, type SidebarToastAction, type SidebarToastData } from "./SidebarToast";
 import {
   ArchiveIcon,
@@ -309,6 +310,7 @@ const SESSION_ACTION_LABEL_KEYS: Record<SessionMenuActionId, string> = {
   rename: "sidebar.rename",
   fork: "sidebar.fork",
   "copy-command": "sidebar.copyCommand",
+  "context-limit": "contextLimit.action",
   "mark-read": "sidebar.markRead",
   "mark-unread": "sidebar.markUnread",
   archive: "sidebar.archive",
@@ -323,6 +325,7 @@ function sessionActionIcon(id: SessionMenuActionId): ReactNode {
     case "rename": return <PencilIcon />;
     case "fork": return <ForkIcon />;
     case "copy-command": return <TerminalIcon />;
+    case "context-limit": return <ChangesIcon />;
     case "mark-read": return <DotOutlineIcon />;
     case "mark-unread": return <DotIcon />;
     case "archive": return <ArchiveIcon />;
@@ -577,6 +580,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [renamingProjectKey, setRenamingProjectKey] = useState<string | null>(null);
   const [confirmDeleteRootId, setConfirmDeleteRootId] = useState<string | null>(null);
   const [menu, setMenu] = useState<SidebarMenuState | null>(null);
+  const [contextLimitModalSession, setContextLimitModalSession] = useState<{ id: string; name?: string } | null>(null);
   // A row the main tree should scroll to (a fork's new row); see
   // SessionTreeReveal. Held until the tree says it is done with it.
   const [treeReveal, setTreeReveal] = useState<SessionTreeReveal | null>(null);
@@ -1944,6 +1948,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       case "rename": startRename(family); break;
       case "fork": void forkFamily(row); break;
       case "copy-command": void copySessionCommand(family); break;
+      case "context-limit": setContextLimitModalSession({ id: family.root.id, name: family.root.name }); break;
       case "mark-read": markFamilyRead(family, true); break;
       case "mark-unread": markFamilyRead(family, false); break;
       case "archive": archiveFamily(family); break;
@@ -2826,6 +2831,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           </div>
         </div>
       </div>
+
+      {contextLimitModalSession && (
+        <SessionContextLimitModal
+          isOpen={Boolean(contextLimitModalSession)}
+          onClose={() => setContextLimitModalSession(null)}
+          session={contextLimitModalSession}
+          translate={t}
+          onLimitUpdated={() => { void loadSessions(); }}
+        />
+      )}
 
       <SidebarMenu
         open={menu !== null}

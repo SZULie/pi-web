@@ -15,6 +15,7 @@ import { ProjectTrustDialog, type ProjectTrustFailure } from "./ProjectTrustDial
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { SystemPromptPanel } from "./SystemPromptPanel";
 import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
+import { SessionContextLimitModal } from "./SessionContextLimitModal";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { SubagentViewer } from "./SubagentViewer";
 import { TerminalPanel } from "./TerminalPanel";
@@ -356,6 +357,7 @@ export function AppShell() {
     setSessionStats(stats);
   }, []);
   const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null);
+  const [contextLimitModalOpen, setContextLimitModalOpen] = useState(false);
   const sessionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleCopySessionField = useCallback((field: SessionCopyField, value: string) => {
     void copyText(value).then(() => {
@@ -2510,6 +2512,41 @@ export function AppShell() {
                         <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 16 : 20 }}>
                           {sessionInfoSection}
                           {projectInfoSection}
+                          {selectedSession && (
+                            <div style={{ marginTop: 2 }}>
+                              <button
+                                type="button"
+                                onClick={() => setContextLimitModalOpen(true)}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  padding: "5px 10px",
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  borderRadius: 5,
+                                  border: "1px solid var(--border)",
+                                  background: "var(--bg)",
+                                  color: "var(--text)",
+                                  cursor: "pointer",
+                                  transition: "all 0.15s ease",
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.borderColor = "var(--accent)";
+                                  e.currentTarget.style.color = "var(--accent)";
+                                  e.currentTarget.style.background = "var(--bg-hover)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.borderColor = "var(--border)";
+                                  e.currentTarget.style.color = "var(--text)";
+                                  e.currentTarget.style.background = "var(--bg)";
+                                }}
+                              >
+                                <span>⚙️</span>
+                                <span>{translate("contextLimit.title")}</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                          {section(translate("session.messages"), messageRows)}
                          {section(translate("session.tokens"), [...tokenRows, ...extraTokenRows], "right", true)}
@@ -2528,6 +2565,19 @@ export function AppShell() {
         </div>
         {isMobile && renderProjectTrustWarning(true)}
         </div>
+
+        {selectedSession && (
+          <SessionContextLimitModal
+            isOpen={contextLimitModalOpen}
+            onClose={() => setContextLimitModalOpen(false)}
+            session={selectedSession}
+            currentContextWindow={contextUsage?.contextWindow ?? null}
+            translate={translate}
+            onLimitUpdated={() => {
+              setRefreshKey((k) => k + 1);
+            }}
+          />
+        )}
 
         {/* Chat content */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>

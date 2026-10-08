@@ -31,6 +31,11 @@ import type {
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
 import { applyToolOverridesToSession, getToolOverrides } from "./tool-overrides";
 import {
+  applySessionContextLimitToSession,
+  getSessionContextLimit,
+  syncSessionContextLimitToMagicContext,
+} from "./session-context-limits";
+import {
   createSubagentExtension,
   preferPiWebSubagentExtension,
 } from "./subagent-extension";
@@ -2134,6 +2139,14 @@ export function getRpcSession(sessionId: string): AgentSessionWrapper | undefine
   return getRegistry().get(sessionId);
 }
 
+export async function updateRpcSessionContextLimit(sessionId: string, limit: number | null): Promise<void> {
+  const sessionWrapper = getRpcSession(sessionId);
+  if (sessionWrapper?.inner) {
+    applySessionContextLimitToSession(sessionWrapper.inner, limit);
+  }
+  syncSessionContextLimitToMagicContext(sessionId, limit);
+}
+
 export async function applyToolOverridesToRunningSessions(): Promise<void> {
   const overrides = await getToolOverrides();
   for (const sessionWrapper of getRegistry().values()) {
@@ -2592,6 +2605,17 @@ export async function startRpcSession(
       applyToolOverridesToSession(inner, toolOverrides);
     } catch (error) {
       console.error("[pi-web] Failed to apply tool overrides to new session:", error);
+    }
+
+    try {
+      const currentSessionId = inner.sessionId as string;
+      const limitConfig = await getSessionContextLimit(currentSessionId);
+      if (limitConfig?.contextLimit) {
+        applySessionContextLimitToSession(inner, limitConfig.contextLimit);
+        syncSessionContextLimitToMagicContext(currentSessionId, limitConfig.contextLimit);
+      }
+    } catch (error) {
+      console.error("[pi-web] Failed to apply session context limit to new session:", error);
     }
 
     // A pinned selection replaces only the coding tools of the SDK's initial loadout, which
