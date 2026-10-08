@@ -4,6 +4,7 @@ import {
   getAwaitingInputRpcSessionIds,
   getCompletionNotificationSuppressedRpcSessionIds,
   getRunningRpcSessionIds,
+  triggerAutoResumeInterruptedSessions,
 } from "@/lib/rpc-manager";
 import { getSessionUiStateRevision } from "@/lib/session-ui-state";
 
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
 // sessionUiStateRevision (null when unreadable) tells the sidebar its pins and
 // archive changed elsewhere; it costs one stat while the file is unchanged.
 export async function GET() {
+  triggerAutoResumeInterruptedSessions();
   return NextResponse.json(
     {
       sessionListVersion: getSessionListVersion(),

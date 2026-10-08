@@ -67,6 +67,7 @@ import { mcpPromptPreparation, type McpCommandCandidate } from "./mcp-command";
 import { createReadOnlyMcpPolicyExtension } from "./mcp-read-only-policy";
 import { createSubagentSkillsBinding } from "./subagent-skills";
 import { isNestedToolExecutionEvent } from "./agent-event-wire";
+import { appendGoalEvent, GOAL_RUNNER_WATCHDOG_INTERVAL_MS, readGoalRunnerStore, updateGoalRunnerStore } from "./goal-runner";
 import {
   appendClearedSessionToolSelection,
   appendSessionToolSelection,
@@ -2016,38 +2017,185 @@ declare global {
   var __piSessions: Map<string, AgentSessionWrapper> | undefined;
   var __piStartLocks: Map<string, Promise<{ session: AgentSessionWrapper; realSessionId: string }>> | undefined;
   var __piStartingSessionCwds: Map<string, number> | undefined;
+  var __piAutoResumeStartupPromise: Promise<void> | undefined;
+  var __piGoalRunnerWatchdogTimer: ReturnType<typeof setInterval> | undefined;
+  var __piGoalRunnerWatchdogActive: boolean | undefined;
+  var __piGoalRunnerWatchdogStatus: GoalRunnerWatchdogStatus | undefined;
+}
+
+export type GoalRunnerWatchdogStatus = {
+  enabled: boolean;
+  active: boolean;
+  intervalMs: number;
+  startedAt: number | null;
+  nextScanAt: number | null;
+  nextScanOverdueMs: number;
+  lastScanAt: number | null;
+  lastScanDurationMs: number | null;
+  lastRestoreAt: number | null;
+  lastCandidateCount: number;
+  lastRestoredCount: number;
+  lastSkippedRunningCount: number;
+  lastError: string | null;
+};
+
+export async function resumeInterruptedSessionRecord(rec: { sessionId: string; sessionFile?: string }): Promise<boolean> {
+  const filePath = rec.sessionFile || (await resolveSessionPath(rec.sessionId));
+  if (!filePath) return false;
+  const existing = getRpcSession(rec.sessionId);
+  if (existing?.isAlive() && existing.isRunning()) return true;
+  const sm = existing?.inner.sessionManager ?? openSessionManager(filePath);
+  const entries = sm.getEntries() as unknown as SessionEntry[];
+  const leafId = sm.getLeafId();
+  const inspection = inspectSessionInterruption(entries, leafId, rec.sessionId, { [rec.sessionId]: { ...rec, interruptedAt: Date.now(), reason: "service_restart" } });
+  if (!inspection.canResume) {
+    await clearInterruptedSession(rec.sessionId);
+    return false;
+  }
+  const started = existing?.isAlive()
+    ? { session: existing }
+    : await startRpcSession(rec.sessionId, filePath, undefined);
+  await clearInterruptedSession(rec.sessionId);
+  const message = inspection.suggestedPrompt;
+  void started.session.send({
+    type: "prompt",
+    message,
+  }).catch((err) => {
+    console.error(`[pi-web] Failed to send auto-resume prompt for ${rec.sessionId}:`, err);
+  });
+  return true;
+}
+
+function goalContinuationPrompt(goal: { objective: string; mode?: string; iteration?: number; consecutiveFailures?: number; lastError?: string; subtasks?: Array<{ text: string; status: string }> }): string {
+  const openSubtasks = (goal.subtasks || []).filter((task) => task.status !== "done");
+  const subtaskText = openSubtasks.length
+    ? `\n\nSubgoals:\n${openSubtasks.map((task, index) => `${index + 1}. [${task.status}] ${task.text}`).join("\n")}`
+    : "";
+  if ((goal.consecutiveFailures || 0) > 0) {
+    return `Recover and continue the active long-running Goal after a Pi-web service restart.\n\n${goal.objective}${subtaskText}\n\nRecent error: ${goal.lastError || "unknown"}\nConsecutive failures: ${goal.consecutiveFailures || 0}\n\nUse a safer strategy, diagnose first, and continue. Do not give up unless the user manually stops the Goal.`;
+  }
+  return `Continue the active long-running Goal after a Pi-web service restart. Do not stop unless the user explicitly uses /g-stop, /goal-stop, /g-pause, or /goal-pause.\n\n${goal.objective}${subtaskText}\n\nMode: ${goal.mode || "finish"}\nIteration: ${(goal.iteration || 0) + 1}\n\nRules:\n1. Inspect the previous result and current state, then choose the next useful step.\n2. If something failed, diagnose, change strategy, and verify.\n3. If information is missing but not safety-critical, make a reasonable assumption and continue.\n4. Ask the user only when blocked by safety, credentials, irreversible operations, or unclear acceptance criteria.\n5. Use explicit timeouts for blocking shell/network commands.\n6. Do not summarize and stop just because the task is long.`;
+}
+
+async function autoResumeRunningGoals(
+  excludedSessionIds: Set<string>,
+  options: { delayMs?: number; source?: "startup" | "watchdog" } = {},
+): Promise<void> {
+  const source = options.source || "startup";
+  const initialStore = await readGoalRunnerStore();
+  const now = Date.now();
+  const runningGoals = Object.values(initialStore.sessions).filter((goal) => goal.status === "running" && !excludedSessionIds.has(goal.sessionId));
+  const goals = source === "watchdog"
+    ? runningGoals.filter((goal) => !goal.nextRetryAt || goal.nextRetryAt <= now + 5_000)
+    : runningGoals;
+  if (source === "watchdog") {
+    const status = getMutableGoalRunnerWatchdogStatus();
+    status.lastScanAt = now;
+    status.lastCandidateCount = goals.length;
+    status.lastRestoredCount = 0;
+    status.lastSkippedRunningCount = 0;
+    status.lastError = null;
+  }
+  if (goals.length === 0) return;
+  if (source !== "watchdog") {
+    console.log(`[pi-web] Found ${goals.length} running Goal Runner session(s). Restoring continuations (${source})...`);
+  }
+  if ((options.delayMs ?? 5000) > 0) {
+    await new Promise((resolve) => setTimeout(resolve, options.delayMs ?? 5000));
+  }
+  let restoredCount = 0;
+  let skippedRunningCount = 0;
+  for (const initialGoal of goals) {
+    try {
+      const store = await readGoalRunnerStore();
+      const goal = store.sessions[initialGoal.sessionId];
+      if (!goal || goal.status !== "running") continue;
+      if (goal.nextRetryAt && goal.nextRetryAt > Date.now() + 5_000) {
+        continue;
+      }
+      const existing = getRpcSession(goal.sessionId);
+      if (existing?.isAlive() && existing.isRunning()) {
+        if (source === "watchdog") skippedRunningCount += 1;
+        continue;
+      }
+      const filePath = await resolveSessionPath(goal.sessionId);
+      if (!filePath) continue;
+      const started = existing?.isAlive()
+        ? { session: existing }
+        : await startRpcSession(goal.sessionId, filePath, undefined);
+      if (started.session.isRunning()) {
+        if (source === "watchdog") skippedRunningCount += 1;
+        continue;
+      }
+
+      const updatedGoal = await updateGoalRunnerStore((latestStore) => {
+        const latestGoal = latestStore.sessions[goal.sessionId];
+        if (!latestGoal || latestGoal.status !== "running") return null;
+        if (latestGoal.nextRetryAt && latestGoal.nextRetryAt > Date.now() + 5_000) return null;
+        const updated = appendGoalEvent({
+          ...latestGoal,
+          nextRetryAt: Date.now() + 30_000,
+          updatedAt: Date.now(),
+        }, source === "watchdog" ? "watchdog" : "restore", source === "watchdog" ? "Pi-web watchdog restored overdue Goal continuation" : "Pi-web startup restored Goal continuation");
+        latestStore.sessions[goal.sessionId] = updated;
+        return updated;
+      });
+      if (!updatedGoal) continue;
+
+      void started.session.send({
+        type: "prompt",
+        message: goalContinuationPrompt(updatedGoal),
+      }).catch((err) => {
+        console.error(`[pi-web] Failed to restore Goal Runner session ${goal.sessionId}:`, err);
+      });
+      restoredCount += 1;
+      if (source === "watchdog") {
+        const status = getMutableGoalRunnerWatchdogStatus();
+        status.lastRestoreAt = Date.now();
+        status.lastRestoredCount = restoredCount;
+      }
+      console.log(`[pi-web] Goal Runner continuation restored for session ${goal.sessionId} (${source})`);
+    } catch (err) {
+      if (source === "watchdog") {
+        getMutableGoalRunnerWatchdogStatus().lastError = err instanceof Error ? err.message : String(err);
+      }
+      console.error(`[pi-web] Failed to restore Goal Runner session ${initialGoal.sessionId}:`, err);
+    }
+  }
+  if (source === "watchdog") {
+    getMutableGoalRunnerWatchdogStatus().lastSkippedRunningCount = skippedRunningCount;
+  }
+}
+
+function shouldSkipStartupAutoResume(): boolean {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.npm_lifecycle_event === "test" ||
+    process.env.PI_WEB_DISABLE_AUTO_RESUME === "1"
+  );
 }
 
 export async function autoResumeInterruptedSessionsOnStartup(): Promise<void> {
-  if (process.env.NODE_ENV === "test") return;
-  const reconciled = reconcileActiveRunsOnStartupSync();
-  if (reconciled.length === 0) return;
-  console.log(`[pi-web] Found ${reconciled.length} interrupted session(s) from previous run. Scheduling auto-resume...`);
-  setTimeout(async () => {
-    for (const rec of reconciled) {
-      try {
-        const filePath = rec.sessionFile || (await resolveSessionPath(rec.sessionId));
-        if (!filePath) continue;
-        const sm = openSessionManager(filePath);
-        const entries = sm.getEntries() as unknown as SessionEntry[];
-        const leafId = sm.getLeafId();
-        const inspection = inspectSessionInterruption(entries, leafId, rec.sessionId, { [rec.sessionId]: rec });
-        if (!inspection.canResume) {
-          await clearInterruptedSession(rec.sessionId);
-          continue;
+  if (shouldSkipStartupAutoResume()) return;
+  if (globalThis.__piAutoResumeStartupPromise) return globalThis.__piAutoResumeStartupPromise;
+  globalThis.__piAutoResumeStartupPromise = (async () => {
+    const reconciled = reconcileActiveRunsOnStartupSync();
+    const restoredActiveRunIds = new Set(reconciled.map((rec) => rec.sessionId));
+    if (reconciled.length > 0) {
+      console.log(`[pi-web] Found ${reconciled.length} interrupted session(s) from previous run. Auto-resuming...`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      for (const rec of reconciled) {
+        try {
+          const resumed = await resumeInterruptedSessionRecord(rec);
+          console.log(`[pi-web] Auto-resume ${resumed ? "started" : "skipped"} for session ${rec.sessionId}`);
+        } catch (err) {
+          console.error(`[pi-web] Failed to auto-resume session ${rec.sessionId} on startup:`, err);
         }
-        console.log(`[pi-web] Auto-resuming session ${rec.sessionId} with prompt "${inspection.suggestedPrompt}"...`);
-        const started = await startRpcSession(rec.sessionId, filePath, undefined);
-        await clearInterruptedSession(rec.sessionId);
-        void started.session.send({
-          type: "prompt",
-          message: inspection.suggestedPrompt,
-        });
-      } catch (err) {
-        console.error(`[pi-web] Failed to auto-resume session ${rec.sessionId} on startup:`, err);
       }
     }
-  }, 1000);
+    await autoResumeRunningGoals(restoredActiveRunIds, { source: "startup" });
+  })();
+  return globalThis.__piAutoResumeStartupPromise;
 }
 
 function getRegistry(): Map<string, AgentSessionWrapper> {
@@ -2070,13 +2218,81 @@ function getRegistry(): Map<string, AgentSessionWrapper> {
     process.once("SIGINT", shutdown);
     process.once("SIGTERM", shutdown);
 
-    try {
-      void autoResumeInterruptedSessionsOnStartup();
-    } catch (e) {
-      console.error("[pi-web] Failed to auto-resume runs on startup:", e);
-    }
+    triggerAutoResumeInterruptedSessions();
   }
   return globalThis.__piSessions;
+}
+
+function getMutableGoalRunnerWatchdogStatus(): GoalRunnerWatchdogStatus {
+  return (globalThis.__piGoalRunnerWatchdogStatus ??= {
+    enabled: false,
+    active: false,
+    intervalMs: GOAL_RUNNER_WATCHDOG_INTERVAL_MS,
+    startedAt: null,
+    nextScanAt: null,
+    nextScanOverdueMs: 0,
+    lastScanAt: null,
+    lastScanDurationMs: null,
+    lastRestoreAt: null,
+    lastCandidateCount: 0,
+    lastRestoredCount: 0,
+    lastSkippedRunningCount: 0,
+    lastError: null,
+  });
+}
+
+export function getGoalRunnerWatchdogStatus(): GoalRunnerWatchdogStatus {
+  const status = getMutableGoalRunnerWatchdogStatus();
+  const enabled = Boolean(globalThis.__piGoalRunnerWatchdogTimer) && !shouldSkipStartupAutoResume();
+  const intervalMs = GOAL_RUNNER_WATCHDOG_INTERVAL_MS;
+  const nextScanBase = status.lastScanAt ?? status.startedAt;
+  const nextScanAt = enabled && nextScanBase ? nextScanBase + intervalMs : null;
+  const active = Boolean(globalThis.__piGoalRunnerWatchdogActive);
+  const now = Date.now();
+  return {
+    ...status,
+    enabled,
+    active,
+    intervalMs,
+    nextScanAt,
+    nextScanOverdueMs: enabled && !active && nextScanAt && nextScanAt < now ? now - nextScanAt : 0,
+  };
+}
+
+function ensureGoalRunnerWatchdog(): void {
+  if (shouldSkipStartupAutoResume()) return;
+  const status = getMutableGoalRunnerWatchdogStatus();
+  status.enabled = true;
+  status.intervalMs = GOAL_RUNNER_WATCHDOG_INTERVAL_MS;
+  if (globalThis.__piGoalRunnerWatchdogTimer) return;
+  status.startedAt = Date.now();
+  globalThis.__piGoalRunnerWatchdogTimer = setInterval(() => {
+    if (globalThis.__piGoalRunnerWatchdogActive) return;
+    globalThis.__piGoalRunnerWatchdogActive = true;
+    const scanStartedAt = Date.now();
+    getMutableGoalRunnerWatchdogStatus().active = true;
+    void autoResumeRunningGoals(new Set(), { delayMs: 0, source: "watchdog" })
+      .catch((err) => {
+        getMutableGoalRunnerWatchdogStatus().lastError = err instanceof Error ? err.message : String(err);
+        console.error("[pi-web] Goal Runner watchdog failed:", err);
+      })
+      .finally(() => {
+        globalThis.__piGoalRunnerWatchdogActive = false;
+        const status = getMutableGoalRunnerWatchdogStatus();
+        status.active = false;
+        status.lastScanDurationMs = Date.now() - scanStartedAt;
+      });
+  }, GOAL_RUNNER_WATCHDOG_INTERVAL_MS);
+  globalThis.__piGoalRunnerWatchdogTimer.unref?.();
+}
+
+export function triggerAutoResumeInterruptedSessions(): void {
+  try {
+    ensureGoalRunnerWatchdog();
+    void autoResumeInterruptedSessionsOnStartup();
+  } catch (e) {
+    console.error("[pi-web] Failed to auto-resume runs on startup:", e);
+  }
 }
 
 function registerRpcWrapper(wrapper: AgentSessionWrapper): void {
