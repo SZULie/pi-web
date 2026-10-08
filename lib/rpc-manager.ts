@@ -14,7 +14,7 @@ import {
   createProjectCommandBashOperations,
   preferUserBashExtension,
 } from "./project-command-env";
-import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
+import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, openSessionManager, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
@@ -38,6 +38,7 @@ import {
 import {
   clearInterruptedSession,
   clearSessionActiveSync,
+  inspectSessionInterruption,
   markSessionActiveSync,
   reconcileActiveRunsOnStartupSync,
   recordInterruptedSessions,
