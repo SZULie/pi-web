@@ -381,6 +381,9 @@ function normalizeGoalStore(parsed: GoalStore): GoalStore | null {
     (goal as GoalRecordWithRawEventTotal)[GOAL_RUNNER_RAW_EVENT_TOTAL] = rawEvents.length;
     goal.events = compactGoalEvents(rawEvents);
     goal.mode = goal.mode || "finish";
+    if (goal.status === "complete" || goal.status === "stopped" || goal.status === "paused") {
+      delete goal.nextRetryAt;
+    }
   }
   return parsed;
 }
@@ -452,13 +455,13 @@ export function goalContinuationPromptFromRecord(goal: GoalRecord): string {
 export function applyGoalRunnerAction(goal: GoalRecord, action: string, mode?: string, text?: string, subtaskId?: string): GoalRecord | null {
   const now = Date.now();
   if (action === "pause") {
-    return appendGoalEvent({ ...goal, status: "paused", updatedAt: now }, "pause", "Goal paused from Pi-web");
+    return appendGoalEvent({ ...goal, status: "paused", nextRetryAt: undefined, updatedAt: now }, "pause", "Goal paused from Pi-web");
   }
   if (action === "stop") {
-    return appendGoalEvent({ ...goal, status: "stopped", updatedAt: now }, "stop", "Goal stopped from Pi-web");
+    return appendGoalEvent({ ...goal, status: "stopped", nextRetryAt: undefined, updatedAt: now }, "stop", "Goal stopped from Pi-web");
   }
   if (action === "complete") {
-    return appendGoalEvent({ ...goal, status: "complete", updatedAt: now }, "complete", "Goal marked complete from Pi-web");
+    return appendGoalEvent({ ...goal, status: "complete", nextRetryAt: undefined, updatedAt: now }, "complete", "Goal marked complete from Pi-web");
   }
   if (action === "resume" || action === "run-now") {
     return appendGoalEvent({
@@ -520,8 +523,8 @@ export function getGoalDiagnostics(goal: GoalRecord, now = Date.now(), isLiveRun
     return {
       health: "idle",
       healthReason: goal.status,
-      retryDelayMs,
-      retryOverdueMs,
+      retryDelayMs: null,
+      retryOverdueMs: null,
       updatedAgeMs,
     };
   }

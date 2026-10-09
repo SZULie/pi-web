@@ -537,7 +537,11 @@ export function AgentSessionPanel({ rootSession, subagents, selectedSessionId, r
                   <span style={{ fontSize: 12, fontWeight: 600 }}>Goal Runner</span>
                 </div>
                 <span style={{ fontSize: 11, color: goalStatus?.current?.status === "running" ? "var(--accent)" : "var(--text-dim)" }}>
-                  {goalStatus?.current ? `${goalStatus.current.status}/${goalStatus.current.phase}` : "idle"}
+                  {goalStatus?.current
+                    ? goalStatus.current.status === "running" || goalStatus.current.status === "draft"
+                      ? `${goalStatus.current.status}/${goalStatus.current.phase}`
+                      : goalStatus.current.status
+                    : "idle"}
                 </span>
               </div>
               <div style={{ fontSize: 11, color: "var(--text-dim)", display: "flex", flexDirection: "column", gap: 4 }}>

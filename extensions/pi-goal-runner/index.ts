@@ -75,6 +75,9 @@ function normalizeGoal(goal: GoalRecord): GoalRecord {
     events: Array.isArray(goal.events) ? compactEvents(goal.events) : [],
     mode: goal.mode || "finish",
   };
+  if (normalized.status === "complete" || normalized.status === "stopped" || normalized.status === "paused") {
+    delete normalized.nextRetryAt;
+  }
   Object.defineProperty(normalized, RAW_EVENT_COUNT, { value: rawEventCount, enumerable: false });
   return normalized;
 }
@@ -416,19 +419,19 @@ function resumeGoal(pi: ExtensionAPI, ctx: any, sessionId: string): void {
 
 function pauseGoal(ctx: any, sessionId: string): void {
   clearTimer(sessionId);
-  const goal = updateGoal(sessionId, (existing) => existing ? appendEvent({ ...existing, status: "paused" }, "pause", "Goal paused") : undefined);
+  const goal = updateGoal(sessionId, (existing) => existing ? appendEvent({ ...existing, status: "paused", nextRetryAt: undefined }, "pause", "Goal paused") : undefined);
   notify(ctx, goal ? "Goal Runner: paused" : "Goal Runner: no goal", goal ? "info" : "error");
 }
 
 function stopGoal(ctx: any, sessionId: string): void {
   clearTimer(sessionId);
-  const goal = updateGoal(sessionId, (existing) => existing ? appendEvent({ ...existing, status: "stopped" }, "stop", "Goal stopped") : undefined);
+  const goal = updateGoal(sessionId, (existing) => existing ? appendEvent({ ...existing, status: "stopped", nextRetryAt: undefined }, "stop", "Goal stopped") : undefined);
   notify(ctx, goal ? "Goal Runner: stopped" : "Goal Runner: no goal", goal ? "info" : "error");
 }
 
 function completeGoal(ctx: any, sessionId: string): void {
   clearTimer(sessionId);
-  const goal = updateGoal(sessionId, (existing) => existing ? appendEvent({ ...existing, status: "complete" }, "complete", "Goal marked complete") : undefined);
+  const goal = updateGoal(sessionId, (existing) => existing ? appendEvent({ ...existing, status: "complete", nextRetryAt: undefined }, "complete", "Goal marked complete") : undefined);
   notify(ctx, goal ? "Goal Runner: complete" : "Goal Runner: no goal", goal ? "info" : "error");
 }
 
