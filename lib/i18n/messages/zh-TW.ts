@@ -207,6 +207,8 @@ export const zhTWLocale: LocalePlugin = {
     "system.label": "系統",
     "tools.label": "工具",
     "tools.title": "工具定義",
+    "goalRunner.label": "目標",
+    "goalRunner.title": "Goal Runner (目標守護)",
     "tools.details": "工具定義詳細資料",
     "tools.load": "工具定義尚未載入",
     "tools.loading": "正在載入工具定義…",

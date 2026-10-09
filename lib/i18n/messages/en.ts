@@ -207,6 +207,8 @@ export const enLocale: LocalePlugin = {
     "system.label": "System",
     "tools.label": "Tools",
     "tools.title": "Tool definitions",
+    "goalRunner.label": "Goal",
+    "goalRunner.title": "Goal Runner",
     "tools.details": "Tool definition details",
     "tools.load": "Tool definitions have not loaded yet",
     "tools.loading": "Loading tool definitions…",

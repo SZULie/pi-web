@@ -18,6 +18,7 @@ import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { SessionContextLimitModal } from "./SessionContextLimitModal";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { SubagentViewer } from "./SubagentViewer";
+import { GoalRunnerPanel } from "./GoalRunnerPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -88,6 +89,7 @@ const AGENT_PANEL_WIDTH = 420;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
 const TOOL_END_REFRESH_MS = 1000;
+const GOAL_PANEL_WIDTH = 480;
 
 function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
@@ -382,8 +384,40 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "goal" | "branches" | "system" | "tools" | "session" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [isGoalRunning, setIsGoalRunning] = useState(false);
+
+  const handleGoalStatusChange = useCallback((status: any) => {
+    const cur = status?.current;
+    setIsGoalRunning(cur?.status === "running" || Boolean(cur?.runtime?.liveRunning));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedSession?.id) {
+      setIsGoalRunning(false);
+      return;
+    }
+    let active = true;
+    const checkGoal = async () => {
+      try {
+        const res = await fetch(`/api/goals/status?sessionId=${encodeURIComponent(selectedSession.id)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!active) return;
+        const cur = data?.current;
+        setIsGoalRunning(cur?.status === "running" || Boolean(cur?.runtime?.liveRunning));
+      } catch {
+        // silent
+      }
+    };
+    void checkGoal();
+    const interval = setInterval(checkGoal, 5000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [selectedSession?.id]);
 
   useEffect(() => {
     if (!sessionHasBranches) {
@@ -402,7 +436,7 @@ export function AppShell() {
   }, [rightPanelFullWidth]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session",
+    panel: "agents" | "goal" | "branches" | "system" | "tools" | "session",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -510,6 +544,14 @@ export function AppShell() {
           top: topBarRect.bottom,
           left: topBarRect.left,
           width: Math.min(AGENT_PANEL_WIDTH, topBarRect.width),
+        });
+        return;
+      }
+      if (activeTopPanel === "goal") {
+        setTopPanelPos({
+          top: topBarRect.bottom,
+          left: topBarRect.left,
+          width: Math.min(GOAL_PANEL_WIDTH, topBarRect.width),
         });
         return;
       }
@@ -1811,6 +1853,60 @@ export function AppShell() {
           </svg>
           {!mobile && <span>{translate("tools.label")}</span>}
         </button>
+        <button
+          type="button"
+          onClick={() => toggleTopPanel("goal", mobile)}
+          disabled={mobile && !showChat}
+          title={translate("goalRunner.title")}
+          aria-label={translate("goalRunner.title")}
+          aria-pressed={activeTopPanel === "goal"}
+          style={{
+            position: "relative",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+            height: "100%", padding: mobile ? 0 : "0 12px",
+            background: activeTopPanel === "goal" ? "var(--bg-selected)" : "none",
+            border: "none",
+            borderTop: activeTopPanel === "goal" ? "2px solid var(--accent)" : "2px solid transparent",
+            borderRight: "1px solid var(--border)",
+            cursor: mobile && !showChat ? "not-allowed" : "pointer",
+            color: activeTopPanel === "goal" ? "var(--text)" : "var(--text-muted)",
+            opacity: mobile && !showChat ? 0.45 : 1,
+            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+          }}
+          onMouseEnter={(event) => {
+            if (mobile && !showChat) return;
+            event.currentTarget.style.color = "var(--text)";
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.color = activeTopPanel === "goal" ? "var(--text)" : "var(--text-muted)";
+          }}
+          data-mobile-toolbar-action={mobile ? "goal" : undefined}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: isGoalRunning ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="2" />
+          </svg>
+          {!mobile && <span>{translate("goalRunner.label")}</span>}
+          {isGoalRunning && (
+            <span
+              aria-label="Goal running"
+              style={{
+                position: mobile ? "absolute" : "static",
+                top: mobile ? 7 : undefined,
+                right: mobile ? 7 : undefined,
+                display: "inline-block",
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "#16a34a",
+                boxShadow: "0 0 0 1.5px var(--bg), 0 0 5px #16a34a",
+                flexShrink: 0,
+              }}
+            />
+          )}
+        </button>
       </div>
     );
   };
@@ -2319,6 +2415,13 @@ export function AppShell() {
                       }
                     }
                   }}
+                />
+              )}
+              {activeTopPanel === "goal" && selectedSession && (
+                <GoalRunnerPanel
+                  rootSession={activeSessionFamily?.root ?? selectedSession}
+                  active={activeTopPanel === "goal"}
+                  onGoalStatusChange={handleGoalStatusChange}
                 />
               )}
               {activeTopPanel === "session" && (
