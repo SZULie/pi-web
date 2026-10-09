@@ -896,15 +896,17 @@ export default function (pi: ExtensionAPI) {
   // Register goal_complete tool so the AI can mark a finished Goal complete in finish mode.
   pi.registerTool?.({
     name: "goal_complete",
+    label: "Goal Complete",
     description: "Mark the current Goal complete and stop autonomous continuation loops. Use this in finish mode when the objective and all subgoals are fully accomplished and verified.",
     parameters: Type.Object({
       summary: Type.String({ description: "Concise summary of what was completed and verified" }),
     }),
-    execute: async (_toolCallId: string, params: { summary: string }, _signal: any, _onUpdate: any, ctx: any) => {
+    execute: async (_toolCallId: string, params: { summary: string }, _signal: any, _onUpdate: any, ctx: any): Promise<any> => {
       const sessionId = getSessionId(ctx);
       if (!sessionId) {
         return {
           content: [{ type: "text", text: "No active session ID found." }],
+          details: { ok: false, error: "no_session_id" },
           isError: true,
         };
       }
@@ -912,6 +914,7 @@ export default function (pi: ExtensionAPI) {
       if (!goal || goal.status !== "running") {
         return {
           content: [{ type: "text", text: `No running goal found for session ${sessionId}.` }],
+          details: { ok: false, error: "no_running_goal" },
         };
       }
       clearTimer(sessionId);
@@ -926,6 +929,7 @@ export default function (pi: ExtensionAPI) {
       notify(ctx, "Goal Runner: goal marked complete by AI", "info");
       return {
         content: [{ type: "text", text: `Goal marked complete successfully. Autonomous continuation concluded.\nSummary: ${params.summary}` }],
+        details: { ok: true, summary: params.summary },
       };
     },
   });
