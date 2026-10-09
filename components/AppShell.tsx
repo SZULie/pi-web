@@ -89,7 +89,6 @@ const AGENT_PANEL_WIDTH = 420;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
 const TOOL_END_REFRESH_MS = 1000;
-const GOAL_PANEL_WIDTH = 480;
 
 function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
@@ -544,14 +543,6 @@ export function AppShell() {
           top: topBarRect.bottom,
           left: topBarRect.left,
           width: Math.min(AGENT_PANEL_WIDTH, topBarRect.width),
-        });
-        return;
-      }
-      if (activeTopPanel === "goal") {
-        setTopPanelPos({
-          top: topBarRect.bottom,
-          left: topBarRect.left,
-          width: Math.min(GOAL_PANEL_WIDTH, topBarRect.width),
         });
         return;
       }
