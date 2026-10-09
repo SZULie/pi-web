@@ -33,8 +33,13 @@ ssh -i "$SSH_KEY" \
   -o ConnectTimeout="$SSH_CONNECT_TIMEOUT" \
   -o ServerAliveInterval=10 \
   -o ServerAliveCountMax=3 \
-  "$REMOTE" "REMOTE_DIR=$(printf '%q' "$REMOTE_DIR") REMOTE_SERVICE=$(printf '%q' "$REMOTE_SERVICE") BUILD_TIMEOUT=$(printf '%q' "$BUILD_TIMEOUT") SKIP_BUILD=$(printf '%q' "$SKIP_BUILD") wsl -d Ubuntu-24.04 bash -s" <<'EOF'
+  "$REMOTE" wsl -d Ubuntu-24.04 bash -s -- "$REMOTE_DIR" "$REMOTE_SERVICE" "$BUILD_TIMEOUT" "$SKIP_BUILD" <<'EOF'
 set -euo pipefail
+
+REMOTE_DIR=$1
+REMOTE_SERVICE=$2
+BUILD_TIMEOUT=$3
+SKIP_BUILD=$4
 
 exec 9>/tmp/pi-web-custom-deploy.lock
 if ! flock -n 9; then
