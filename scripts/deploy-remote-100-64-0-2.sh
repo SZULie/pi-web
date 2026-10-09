@@ -50,14 +50,14 @@ fi
 cd "$REMOTE_DIR"
 
 diagnose() {
-  local code=\$?
-  echo "--- deployment failed with exit code \$code" >&2
+  local code=$?
+  echo "--- deployment failed with exit code $code" >&2
   echo "--- running build processes" >&2
   pgrep -af 'next build|npm run build|node.*next' >&2 || true
   echo "--- service state" >&2
-  systemctl --user is-active "\$REMOTE_SERVICE" >&2 || true
+  systemctl --user is-active "$REMOTE_SERVICE" >&2 || true
   curl -s -o /dev/null -w 'remote HTTP during failure: %{http_code}\n' http://127.0.0.1:8504/ >&2 || true
-  exit "\$code"
+  exit "$code"
 }
 trap diagnose ERR
 
@@ -73,7 +73,10 @@ fi
 node -v
 node -e 'const major=Number(process.versions.node.split(".")[0]); if (major < 20) { console.error("Node >=20 required, got " + process.version); process.exit(1); }'
 
-npm install
+install_dependencies() {
+  npm install --prefer-offline --no-audit --no-fund
+}
+install_dependencies || { sleep 5; install_dependencies; } || { sleep 15; npm install --no-audit --no-fund; }
 
 if [ "$SKIP_BUILD" = "1" ]; then
   echo "SKIP_BUILD=1: skipping Next.js build"
