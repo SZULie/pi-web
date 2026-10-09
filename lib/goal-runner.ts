@@ -516,22 +516,22 @@ export function getGoalDiagnostics(goal: GoalRecord, now = Date.now(), isLiveRun
   const retryOverdueMs = goal.nextRetryAt && goal.nextRetryAt <= now ? Math.max(0, now - goal.nextRetryAt) : null;
   const updatedAgeMs = Math.max(0, now - (goal.updatedAt || 0));
 
-  if (isLiveRunning) {
-    return {
-      health: "running",
-      healthReason: "session is actively running",
-      retryDelayMs: null,
-      retryOverdueMs: null,
-      updatedAgeMs,
-    };
-  }
-
   if (goal.status === "complete" || goal.status === "stopped" || goal.status === "paused") {
     return {
       health: "idle",
       healthReason: goal.status,
       retryDelayMs,
       retryOverdueMs,
+      updatedAgeMs,
+    };
+  }
+
+  if (isLiveRunning) {
+    return {
+      health: "running",
+      healthReason: "session is actively running",
+      retryDelayMs: null,
+      retryOverdueMs: null,
       updatedAgeMs,
     };
   }
@@ -640,6 +640,10 @@ function normalizeGoalForStatus(
   eventTypeFilter?: Set<string>,
 ): GoalRecordWithDiagnostics {
   const runtime = runtimeStatusBySessionId.get(goal.sessionId) || { liveRunning: false, completionNotificationSuppressed: false };
+  const effectiveRuntime = {
+    liveRunning: goal.status === "running" && runtime.liveRunning,
+    completionNotificationSuppressed: goal.status === "running" && runtime.completionNotificationSuppressed,
+  };
   const rawEvents = Array.isArray(goal.events) ? compactGoalEvents(goal.events) : [];
   const visibleEvents = eventTypeFilter && eventTypeFilter.size > 0
     ? rawEvents.filter((event) => eventTypeFilter.has(event.type))
@@ -658,8 +662,8 @@ function normalizeGoalForStatus(
     events,
     mode: goal.mode || "finish",
     eventSummary: summarizeGoalEvents(rawEvents, (goal as GoalRecordWithRawEventTotal)[GOAL_RUNNER_RAW_EVENT_TOTAL] ?? rawEvents.length, eventTypeFilter ? [...eventTypeFilter].sort() : [], events.length),
-    diagnostics: getGoalDiagnostics(goal, now, runtime.liveRunning),
-    runtime,
+    diagnostics: getGoalDiagnostics(goal, now, effectiveRuntime.liveRunning),
+    runtime: effectiveRuntime,
   };
 }
 
