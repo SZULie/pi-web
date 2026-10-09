@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { homedir } from "os";
 import path from "path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 type GoalStatus = "draft" | "running" | "paused" | "stopped" | "complete";
 type GoalMode = "finish" | "forever";
@@ -262,11 +263,22 @@ function clarificationPrompt(objective: string): string {
 }
 
 function continuePrompt(goal: GoalRecord): string {
-  return `Continue the active long-running Goal. Do not stop unless the user explicitly uses /g-stop, /goal-stop, /g-pause, or /goal-pause.\n\n${goalText(goal)}\n\nMode: ${goal.mode} (${goal.mode === "forever" ? "keep improving even after likely completion" : "work toward completion, but only the user marks complete"})\nIteration: ${goal.iteration + 1}\n\nRules:\n1. Inspect the previous result and current state, then choose the next useful step.\n2. If something failed, diagnose, change strategy, and verify.\n3. If information is missing but not safety-critical, make a reasonable assumption and continue.\n4. Ask the user only when blocked by safety, credentials, irreversible operations, or unclear acceptance criteria.\n5. Use explicit timeouts for blocking shell/network commands.\n6. Do not summarize and stop just because the task is long.`;
+  const modeText = goal.mode === "forever"
+    ? "Mode: forever (keep improving even after likely completion; do not call goal_complete unless requested)"
+    : "Mode: finish (work toward completion; when all requirements and subgoals are completely accomplished and verified, call the goal_complete tool to mark the goal finished and conclude autonomous continuation)";
+
+  const finishRule = goal.mode === "finish"
+    ? "6. In finish mode: if all requirements and subgoals are completely finished and verified, you must call the goal_complete tool before giving your final summary to stop automated loops. Do not summarize without calling goal_complete if the goal is truly done. In forever mode: continue improving without calling goal_complete."
+    : "6. In forever mode: continuously improve, refactor, and harden even after core completion. Do not call goal_complete.";
+
+  return `Continue the active long-running Goal. Do not stop unless the user explicitly uses /g-stop, /goal-stop, /g-pause, or /goal-pause.\n\n${goalText(goal)}\n\n${modeText}\nIteration: ${goal.iteration + 1}\n\nRules:\n1. Inspect the previous result and current state, then choose the next useful step.\n2. If something failed, diagnose, change strategy, and verify.\n3. If information is missing but not safety-critical, make a reasonable assumption and continue.\n4. Ask the user only when blocked by safety, credentials, irreversible operations, or unclear acceptance criteria.\n5. Use explicit timeouts for blocking shell/network commands.\n${finishRule}`;
 }
 
 function startAfterClarificationPrompt(goal: GoalRecord, answer: string): string {
-  return `The user answered the Goal clarification questions. Begin execution now.\n\n${goalText(goal)}\n\nUser clarification answer:\n${answer}\n\nFirst make a short execution plan, then immediately perform the first concrete step. Goal Runner will continue automatically until the user pauses/stops/completes it.`;
+  const finishNote = goal.mode === "finish"
+    ? " In 'finish' mode, when all objectives are complete and verified, call the `goal_complete` tool to finish the goal and conclude the loop."
+    : "";
+  return `The user answered the Goal clarification questions. Begin execution now.\n\n${goalText(goal)}\n\nUser clarification answer:\n${answer}\n\nFirst make a short execution plan, then immediately perform the first concrete step.${finishNote} Goal Runner will continue automatically until the user pauses/stops/completes it or goal_complete is called.`;
 }
 
 function failurePrompt(goal: GoalRecord): string {
@@ -880,6 +892,43 @@ export default function (pi: ExtensionAPI) {
   register("goal-complete", "Mark Goal complete", (_args, ctx, sessionId) => completeGoal(ctx, sessionId));
   register("goal-done", "Mark Goal complete", (_args, ctx, sessionId) => completeGoal(ctx, sessionId));
   register("goal-mode", "Set Goal mode: finish|forever", (args, ctx, sessionId) => setModeGoal(ctx, sessionId, args));
+
+  // Register goal_complete tool so the AI can mark a finished Goal complete in finish mode.
+  pi.registerTool?.({
+    name: "goal_complete",
+    description: "Mark the current Goal complete and stop autonomous continuation loops. Use this in finish mode when the objective and all subgoals are fully accomplished and verified.",
+    parameters: Type.Object({
+      summary: Type.String({ description: "Concise summary of what was completed and verified" }),
+    }),
+    execute: async (_toolCallId: string, params: { summary: string }, _signal: any, _onUpdate: any, ctx: any) => {
+      const sessionId = getSessionId(ctx);
+      if (!sessionId) {
+        return {
+          content: [{ type: "text", text: "No active session ID found." }],
+          isError: true,
+        };
+      }
+      const goal = readStore().sessions[sessionId];
+      if (!goal || goal.status !== "running") {
+        return {
+          content: [{ type: "text", text: `No running goal found for session ${sessionId}.` }],
+        };
+      }
+      clearTimer(sessionId);
+      updateGoal(sessionId, (g) => g ? appendEvent({
+        ...g,
+        status: "complete",
+        phase: "executing",
+        nextRetryAt: undefined,
+        lastError: undefined,
+        consecutiveFailures: 0,
+      }, "complete", `Goal marked complete by AI: ${params.summary}`) : undefined);
+      notify(ctx, "Goal Runner: goal marked complete by AI", "info");
+      return {
+        content: [{ type: "text", text: `Goal marked complete successfully. Autonomous continuation concluded.\nSummary: ${params.summary}` }],
+      };
+    },
+  });
 
   pi.on("session_start", async (_event: any, ctx: any) => {
     const sessionId = getSessionId(ctx);

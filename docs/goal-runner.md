@@ -68,10 +68,13 @@ APIs:
 
 UI:
 
-- The Agents panel shows a Goal Runner system card.
-- The card shows status, health, live runtime state, retry timing, watchdog state, lock/backup state, version/config, recent events, subgoals, and active-goal count.
+- The top navigation bar includes a dedicated Goal Runner entry (`🎯`) directly next to the Tools button.
+- The button features an active status indicator dot when a goal is running in the session.
+- Clicking the button opens a full-width, two-column Goal Runner panel structured similarly to the Tools panel:
+  - Left navigation: Brand header with status badge, active tabs ("🎯 当前目标与控制", "📋 子任务清单", "📜 事件与日志", "🛡️ 运行状态与守护", "🌐 其他会话目标"), and live footer metrics (Watchdog, Lock, Backup).
+  - Right detail panel: Action controls (`Pause`/`Resume`, `Run now`, `Stop`, `Done`, `Mode`), iteration information, subgoals management, filtered event logs, and system diagnostics.
 - The card exposes event filter chips: `all`, `restore`, `settled`, `run`, `retry`, `error`, and `subtask`; chips show event-type counts, `all` shows summary/returned counts such as `all 13/8` when the recent list is capped, and hover titles explain empty filters.
-- The card can pause, resume, stop, mark done, toggle finish/forever, append subgoals, and mark subgoals done/reopen.
+- AI autonomous termination: in `finish` mode, AI can call the `goal_complete` tool upon full objective achievement and verification to mark the goal complete and conclude the autonomous loop without human intervention.
 
 ## Deployment
 
