@@ -27,6 +27,7 @@ import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security"
 import {
   inspectUploadTargets,
   parseUploadConflictStrategy,
+  replaceUploadFile,
   validateUploadFileNames,
 } from "@/lib/file-upload";
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
@@ -132,6 +133,36 @@ async function allowLinkedDirectory(
 function parseUploadFileNames(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return null;
   return value;
+}
+
+async function stageUploadFile(file: File, directory: string, mode?: number): Promise<{ stagingDirectory: string; stagingFile: string }> {
+  const stagingDirectory = fs.mkdtempSync(path.join(directory, ".pi-upload-"));
+  const stagingFile = path.join(stagingDirectory, "upload");
+  try {
+    if (typeof file.stream === "function") {
+      const ws = fs.createWriteStream(stagingFile, { flags: "wx", mode });
+      await pipeline(Readable.fromWeb(file.stream() as any), ws);
+    } else {
+      const bytes = Buffer.from(await file.arrayBuffer());
+      fs.writeFileSync(stagingFile, bytes, { flag: "wx", mode });
+    }
+    return { stagingDirectory, stagingFile };
+  } catch (error) {
+    fs.rmSync(stagingDirectory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function installStagedUpload(staging: { stagingDirectory: string; stagingFile: string }, destination: string, replacing: boolean): void {
+  try {
+    if (replacing) {
+      replaceUploadFile(destination, staging.stagingFile);
+    } else {
+      fs.renameSync(staging.stagingFile, destination);
+    }
+  } finally {
+    fs.rmSync(staging.stagingDirectory, { recursive: true, force: true });
+  }
 }
 
 export async function POST(
@@ -245,26 +276,13 @@ export async function POST(
         continue;
       }
 
-      if (conflictSet.has(file.name)) {
-        try {
-          fs.unlinkSync(destination);
-        } catch (error) {
-          errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
-          continue;
-        }
-      }
-
+      const replacing = conflictSet.has(file.name);
       try {
-        if (typeof file.stream === "function") {
-          const ws = fs.createWriteStream(destination, { flags: "wx" });
-          await pipeline(Readable.fromWeb(file.stream() as any), ws);
-        } else {
-          const bytes = Buffer.from(await file.arrayBuffer());
-          fs.writeFileSync(destination, bytes, { flag: "wx" });
-        }
+        const mode = replacing ? fs.lstatSync(destination).mode & 0o777 : undefined;
+        const staging = await stageUploadFile(file, directory, mode);
+        installStagedUpload(staging, destination, replacing);
         uploaded.push(file.name);
       } catch (error) {
-        try { if (fs.existsSync(destination)) fs.unlinkSync(destination); } catch {}
         errors.push({ name: file.name, error: error instanceof Error ? error.message : String(error) });
       }
     }

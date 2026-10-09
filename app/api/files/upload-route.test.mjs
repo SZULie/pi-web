@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { Writable } from "node:stream";
 import { createJiti } from "jiti";
 
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-web-upload-route-")));
@@ -42,14 +43,19 @@ for (const partial of [false, true]) {
   test(`failed overwrite preserves original and cleans staging (partial write: ${partial})`, async (t) => {
     const { directory, destination } = fixture();
     const write = fs.writeFileSync;
+    const createWriteStream = fs.createWriteStream;
     let injected = false;
-    t.mock.method(fs, "writeFileSync", (target, ...args) => {
+    t.mock.method(fs, "createWriteStream", (target, ...args) => {
       if (String(target).startsWith(directory + path.sep)) {
         injected = true;
-        if (partial) write(target, "partial replacement", args[1]);
-        throw Object.assign(new Error("simulated ENOSPC"), { code: "ENOSPC" });
+        return new Writable({
+          write(_chunk, _encoding, callback) {
+            if (partial) write(target, "partial replacement");
+            callback(Object.assign(new Error("simulated ENOSPC"), { code: "ENOSPC" }));
+          },
+        });
       }
-      return write(target, ...args);
+      return createWriteStream(target, ...args);
     });
     const response = await upload(directory);
     assert.equal(injected, true);
@@ -94,14 +100,16 @@ test("refuses a destination changed to a link while the replacement is staged", 
   const { directory, destination } = fixture();
   const outside = fs.mkdtempSync(path.join(base, "changed-outside-"));
   fs.writeFileSync(path.join(outside, "secret.txt"), "private contents");
-  const write = fs.writeFileSync;
-  t.mock.method(fs, "writeFileSync", (target, ...args) => {
-    const result = write(target, ...args);
+  const createWriteStream = fs.createWriteStream;
+  t.mock.method(fs, "createWriteStream", (target, ...args) => {
+    const stream = createWriteStream(target, ...args);
     if (String(target).startsWith(directory + path.sep)) {
-      fs.unlinkSync(destination);
-      fs.symlinkSync(outside, destination, process.platform === "win32" ? "junction" : "dir");
+      stream.once("finish", () => {
+        fs.unlinkSync(destination);
+        fs.symlinkSync(outside, destination, process.platform === "win32" ? "junction" : "dir");
+      });
     }
-    return result;
+    return stream;
   });
   const response = await upload(directory);
   assert.equal(response.status, 207);

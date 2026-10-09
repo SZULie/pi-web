@@ -59,10 +59,21 @@ export function inspectUploadTargets(directory: string, fileNames: string[]): Up
 }
 
 /** Keep the old entry intact until its complete replacement can be renamed over it. */
-export function replaceUploadFile(destination: string, bytes: Buffer): void {
+export function replaceUploadFile(destination: string, replacement: Buffer | string): void {
   const stat = fs.lstatSync(destination);
   if (!stat.isFile() || stat.isSymbolicLink()) {
     throw new Error("Cannot replace a directory or symbolic link");
+  }
+
+  // The destination may have changed since the multipart upload was inspected.
+  const current = fs.lstatSync(destination);
+  if (!current.isFile() || current.isSymbolicLink()) {
+    throw new Error("Cannot replace a directory or symbolic link");
+  }
+
+  if (typeof replacement === "string") {
+    fs.renameSync(replacement, destination);
+    return;
   }
 
   // A private directory beside the destination keeps the rename on the same
@@ -70,12 +81,7 @@ export function replaceUploadFile(destination: string, bytes: Buffer): void {
   const stagingDirectory = fs.mkdtempSync(path.join(path.dirname(destination), ".pi-upload-"));
   const stagingFile = path.join(stagingDirectory, "upload");
   try {
-    fs.writeFileSync(stagingFile, bytes, { flag: "wx", mode: stat.mode & 0o777 });
-    // The destination may have changed since the multipart upload was inspected.
-    const current = fs.lstatSync(destination);
-    if (!current.isFile() || current.isSymbolicLink()) {
-      throw new Error("Cannot replace a directory or symbolic link");
-    }
+    fs.writeFileSync(stagingFile, replacement, { flag: "wx", mode: stat.mode & 0o777 });
     fs.renameSync(stagingFile, destination);
   } finally {
     fs.rmSync(stagingDirectory, { recursive: true, force: true });
