@@ -325,7 +325,7 @@ function sessionActionIcon(id: SessionMenuActionId): ReactNode {
     case "rename": return <PencilIcon />;
     case "fork": return <ForkIcon />;
     case "copy-command": return <TerminalIcon />;
-    case "context-limit": return <ChangesIcon />;
+    case "context-limit": return <PencilIcon />;
     case "mark-read": return <DotOutlineIcon />;
     case "mark-unread": return <DotIcon />;
     case "archive": return <ArchiveIcon />;
