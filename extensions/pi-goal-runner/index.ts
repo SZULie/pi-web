@@ -321,6 +321,26 @@ function scheduleRunningGoal(pi: ExtensionAPI, sessionId: string, goal: GoalReco
   scheduleContinuation(pi, sessionId, delay, promptFactory);
 }
 
+function consumePendingPromptImages(sessionId: string): Array<{ type: "image"; data: string; mimeType: string }> | undefined {
+  const map = (globalThis as any).__piWebPendingPromptImages;
+  if (!map || typeof map.get !== "function") return undefined;
+  const images = map.get(sessionId);
+  map.delete(sessionId);
+  return Array.isArray(images) && images.length > 0 ? images : undefined;
+}
+
+function sendPromptWithOptionalImages(
+  pi: ExtensionAPI,
+  text: string,
+  images?: Array<{ type: "image"; data: string; mimeType: string }>,
+): void {
+  if (images?.length) {
+    pi.sendUserMessage([{ type: "text", text }, ...images] as any, { deliverAs: "followUp" });
+  } else {
+    pi.sendUserMessage(text, { deliverAs: "followUp" });
+  }
+}
+
 function startGoal(pi: ExtensionAPI, ctx: any, sessionId: string, objective: string): void {
   const trimmed = objective.trim();
   if (!trimmed) {
@@ -332,6 +352,7 @@ function startGoal(pi: ExtensionAPI, ctx: any, sessionId: string, objective: str
     addGoal(pi, ctx, sessionId, trimmed);
     return;
   }
+  const images = consumePendingPromptImages(sessionId);
   const now = Date.now();
   updateGoal(sessionId, () => appendEvent({
     sessionId,
@@ -349,7 +370,7 @@ function startGoal(pi: ExtensionAPI, ctx: any, sessionId: string, objective: str
   notify(ctx, "Goal Runner: clarification started", "info");
   const prompt = clarificationPrompt(trimmed);
   suppressNextClarificationInput.set(sessionId, prompt);
-  pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+  sendPromptWithOptionalImages(pi, prompt, images);
 }
 
 function addGoal(pi: ExtensionAPI, ctx: any, sessionId: string, text: string): void {
@@ -358,6 +379,7 @@ function addGoal(pi: ExtensionAPI, ctx: any, sessionId: string, text: string): v
     notify(ctx, "Usage: /goal-add <subgoal> or /goal add <subgoal>", "error");
     return;
   }
+  const images = consumePendingPromptImages(sessionId);
   const goal = updateGoal(sessionId, (existing) => {
     if (!existing) {
       const now = Date.now();
@@ -383,11 +405,11 @@ function addGoal(pi: ExtensionAPI, ctx: any, sessionId: string, text: string): v
   });
   notify(ctx, goal?.subtasks?.length ? "Goal Runner: subgoal added" : "Goal Runner: goal created", "info");
   if (goal?.status === "running") {
-    pi.sendUserMessage(`A new subgoal was appended to the active Goal:\n\n${trimmed}\n\nIncorporate it into the current plan and continue.`, { deliverAs: "followUp" });
+    sendPromptWithOptionalImages(pi, `A new subgoal was appended to the active Goal:\n\n${trimmed}\n\nIncorporate it into the current plan and continue.`, images);
   } else if (goal?.status === "draft") {
     const prompt = clarificationPrompt(goal.objective);
     suppressNextClarificationInput.set(sessionId, prompt);
-    pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+    sendPromptWithOptionalImages(pi, prompt, images);
   }
 }
 

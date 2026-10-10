@@ -872,6 +872,10 @@ export class AgentSessionWrapper {
           }
           let prompt: Promise<void>;
           try {
+            if (promptImages?.length) {
+              (globalThis as any).__piWebPendingPromptImages ??= new Map();
+              (globalThis as any).__piWebPendingPromptImages.set(this.sessionId, promptImages);
+            }
             prompt = this.inner.prompt(command.message as string, {
               ...(promptImages?.length ? { images: promptImages } : {}),
               ...(streamingBehavior ? { streamingBehavior } : {}),
@@ -883,11 +887,13 @@ export class AgentSessionWrapper {
               preflightResult: () => acceptPreflight(),
             });
           } catch (error) {
+            (globalThis as any).__piWebPendingPromptImages?.delete?.(this.sessionId);
             finishPrompt();
             throw error;
           }
 
           void prompt.then(() => {
+            (globalThis as any).__piWebPendingPromptImages?.delete?.(this.sessionId);
             // Compatibility fallback if a future SDK resolves without invoking
             // the internal callback. This waits for the run, but never acks early.
             acceptPreflight();

@@ -40,7 +40,25 @@ export async function POST(req: Request) {
     }
 
     const updateResult = await updateGoalRunnerStore((store) => {
-      const goal = store.sessions[sessionId];
+      let goal = store.sessions[sessionId];
+      if (!goal && action === "start") {
+        const trimmed = body.text?.trim();
+        if (!trimmed) return { error: "text is required to start a goal", status: 400 as const };
+        const now = Date.now();
+        goal = {
+          sessionId,
+          objective: trimmed,
+          subtasks: [],
+          events: [],
+          status: "stopped",
+          phase: "clarifying",
+          mode: "finish",
+          createdAt: now,
+          updatedAt: now,
+          iteration: 0,
+          consecutiveFailures: 0,
+        };
+      }
       if (!goal) return { error: "Goal not found", status: 404 as const };
 
       const updated = applyGoalRunnerAction(goal, action, body.mode, body.text, body.subtaskId);

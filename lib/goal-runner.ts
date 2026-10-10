@@ -454,6 +454,23 @@ export function goalContinuationPromptFromRecord(goal: GoalRecord): string {
 
 export function applyGoalRunnerAction(goal: GoalRecord, action: string, mode?: string, text?: string, subtaskId?: string): GoalRecord | null {
   const now = Date.now();
+  if (action === "start") {
+    const trimmed = typeof text === "string" ? text.trim() : "";
+    if (!trimmed) return null;
+    return appendGoalEvent({
+      ...goal,
+      objective: trimmed,
+      status: "draft",
+      phase: "clarifying",
+      mode: "finish",
+      iteration: 0,
+      consecutiveFailures: 0,
+      subtasks: [],
+      nextRetryAt: undefined,
+      lastError: undefined,
+      updatedAt: now,
+    }, "start", "Goal started from Pi-web and awaiting clarification");
+  }
   if (action === "pause") {
     return appendGoalEvent({ ...goal, status: "paused", nextRetryAt: undefined, updatedAt: now }, "pause", "Goal paused from Pi-web");
   }
