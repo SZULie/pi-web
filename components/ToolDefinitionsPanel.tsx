@@ -306,54 +306,54 @@ export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated
       <nav className="tool-definitions-sidebar" aria-label={translate("tools.title")}>
         <div className="tool-sidebar-filters">
           <div className="tool-filter-group">
-            <span className="tool-filter-label">状态:</span>
+            <span className="tool-filter-label">{translate("tools.activeFilter")}:</span>
             <div className="tool-filter-buttons">
               <button
                 type="button"
                 className={`tool-filter-btn ${filterActiveTab === "all" ? "active" : ""}`}
                 onClick={() => setFilterActiveTab("all")}
               >
-                全部
+                {translate("tools.allFilter")}
               </button>
               <button
                 type="button"
                 className={`tool-filter-btn ${filterActiveTab === "active" ? "active" : ""}`}
                 onClick={() => setFilterActiveTab("active")}
               >
-                已激活
+                {translate("tools.activeFilter")}
               </button>
               <button
                 type="button"
                 className={`tool-filter-btn ${filterActiveTab === "inactive" ? "active" : ""}`}
                 onClick={() => setFilterActiveTab("inactive")}
               >
-                未激活
+                {translate("tools.inactiveFilter")}
               </button>
             </div>
           </div>
           <div className="tool-filter-group">
-            <span className="tool-filter-label">范围:</span>
+            <span className="tool-filter-label">{translate("tools.scopeAll")}:</span>
             <div className="tool-filter-buttons">
               <button
                 type="button"
                 className={`tool-filter-btn ${filterScopeTab === "all" ? "active" : ""}`}
                 onClick={() => setFilterScopeTab("all")}
               >
-                全部
+                {translate("tools.allFilter")}
               </button>
               <button
                 type="button"
                 className={`tool-filter-btn ${filterScopeTab === "workspace" ? "active" : ""}`}
                 onClick={() => setFilterScopeTab("workspace")}
               >
-                工作区
+                {translate("tools.workspaceScope")}
               </button>
               <button
                 type="button"
                 className={`tool-filter-btn ${filterScopeTab === "global" ? "active" : ""}`}
                 onClick={() => setFilterScopeTab("global")}
               >
-                全局
+                {translate("tools.globalScope")}
               </button>
             </div>
           </div>
@@ -385,7 +385,7 @@ export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated
                     )}
                   </div>
                   <span className="tool-item-scope-tag">
-                    {tool.scope === "workspace" ? "工作区" : "全局"}
+                    {tool.scope === "workspace" ? translate("tools.workspaceScope") : translate("tools.globalScope")}
                   </span>
                 </button>
               );
@@ -405,10 +405,12 @@ export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated
               <div className="tool-definition-title-row">
                 <code className="tool-title-name">{selectedTool.name}</code>
                 <span className={`tool-status-pill ${selectedTool.active ? "active" : "inactive"}`}>
-                  {selectedTool.active ? "已激活 (Active)" : "未激活 (Inactive)"}
+                  {selectedTool.active ? `${translate("tools.activeFilter")} (Active)` : `${translate("tools.inactiveFilter")} (Inactive)`}
                 </span>
                 <span className="tool-scope-pill">
-                  {selectedTool.scope === "workspace" ? "当前工作目录 (Workspace)" : "全局默认 (Global)"}
+                  {selectedTool.scope === "workspace"
+                    ? `${translate("tools.workspaceScope")} (Workspace)`
+                    : `${translate("tools.globalScope")} (Global)`}
                 </span>
                 {isCustomized && (
                   <span className="tool-customized-tag">{translate("tools.customizedBadge")}</span>
