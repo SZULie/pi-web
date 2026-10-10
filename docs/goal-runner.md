@@ -15,36 +15,36 @@ The extension is loaded by both terminal Pi and Pi-web sessions. After changing 
 
 ## Commands
 
-Preferred short commands:
+Unified `/goal` control commands:
 
-- `/g <objective>` — start a new goal, or append a subgoal when a goal already exists in the session.
-- `/g-start <objective>` — explicitly start/replace a goal.
-- `/g-add <subgoal>` — append a subgoal.
-- `/g-status` — show current session goal status, retry timing, event window/returned count/top event types, and backup current-session coverage.
-- `/g-list` — list active goals.
-- `/g-subtasks` — list current goal subtasks.
-- `/g-subtask-done <number|id>` — mark a subtask done.
-- `/g-subtask-open <number|id>` — reopen a subtask as pending.
-- `/g-subtask-block <number|id>` — mark a subtask blocked.
-- `/g-events [type...]` — show recent Goal events, optionally filtered by event types such as `restore run` or `restore,run`; the title includes event window, returned count, and active filter.
-- `/g-doctor` — show a one-shot diagnostic summary: config, store, backup, lock, current goal, retry, event summary top types, and recent events.
-- `/g-lock` — show the Goal store lock path, free/held/stale status, age, and owner pid.
-- `/g-unlock` — clear only a stale Goal store lock; held/non-stale locks are never removed.
-- `/g-backup` — show backup readability, age, size, session count, whether it contains the current session, and whether it is safe to restore.
-- `/g-restore-backup` — restore the primary store from backup only when the primary store is unreadable and backup is readable.
-- `/g-config` — show operational config: version, store/backup/lock path, max retry backoff, event window, and remote deploy helper.
-- `/g-run` — run the current goal immediately, bypassing any future retry delay.
-- `/g-resume` — resume a paused or draft goal.
-- `/g-pause` — pause automatic continuation.
-- `/g-stop` — stop automatic continuation.
-- `/g-done` or `/g-complete` — mark the goal complete.
-- `/g-mode finish|forever` — switch between finish-oriented and forever-running modes.
+- `/goal <objective>` — start a new goal, or append a subgoal when a goal already exists in the session.
+- `/goal-start <objective>` — explicitly start/replace a goal.
+- `/goal-add <subgoal>` — append a subgoal.
+- `/goal-status` — show current session goal status, retry timing, event window/returned count/top event types, and backup current-session coverage.
+- `/goal-run` — run the current goal immediately, bypassing any future retry delay.
+- `/goal-resume` — resume a paused or draft goal.
+- `/goal-pause` — pause automatic continuation.
+- `/goal-stop` — stop automatic continuation.
+- `/goal-done` or `/goal-complete` — mark the goal complete.
+- `/goal-mode finish|forever` — switch between finish-oriented and forever-running modes.
 
-Compatibility aliases also exist under `/goal-*`, for example `/goal-stop`, `/goal-add`, and `/goal-config`.
+All additional management actions are available via subcommands under `/goal`:
+- `/goal add <subgoal>` — append a subgoal
+- `/goal subtasks` — list current goal subtasks
+- `/goal subtask done|open|block <number|id>` — update subtask status
+- `/goal events [type...]` — show recent Goal events, optionally filtered by event types such as `restore run` or `restore,run`
+- `/goal doctor` — show a one-shot diagnostic summary: config, store, backup, lock, current goal, retry, event summary top types, and recent events
+- `/goal lock` — show the Goal store lock path, free/held/stale status, age, and owner pid
+- `/goal unlock` — clear only a stale Goal store lock; held/non-stale locks are never removed
+- `/goal backup` — show backup readability, age, size, session count, whether it contains the current session, and whether it is safe to restore
+- `/goal restore-backup` — restore the primary store from backup only when the primary store is unreadable and backup is readable
+- `/goal config` — show operational config: version, store/backup/lock path, max retry backoff, event window, and remote deploy helper
+- `/goal list` — list active goals across sessions
+- `/goal help` — show Goal Runner help
 
 ## Behavior
 
-Current config exposed by `/g-config` and `GET /api/goals/status`: version `1.4.0`, max retry backoff `20m` (`1200000` ms), default mode `finish`, store lock timeout `10s` (`10000` ms), stale lock recovery `60s` (`60000` ms), watchdog interval `30s` (`30000` ms), event window `40`, backup path `~/.pi/agent/goal-runner.json.bak`.
+Current config exposed by `/goal config` and `GET /api/goals/status`: version `1.4.0`, max retry backoff `20m` (`1200000` ms), default mode `finish`, store lock timeout `10s` (`10000` ms), stale lock recovery `60s` (`60000` ms), watchdog interval `30s` (`30000` ms), event window `40`, backup path `~/.pi/agent/goal-runner.json.bak`.
 
 1. Starting a goal begins in `draft/clarifying` and asks a short dynamic set of clarification questions.
 2. The user's next normal message is transformed into an execution-start prompt and the goal enters `running/executing`.
@@ -109,49 +109,17 @@ npm test -- --runInBand lib/goal-runner.test.mjs lib/pi-goal-runner-extension.te
 npm run build
 ```
 
-Then verify a new Pi-web runtime command table contains 48 Goal commands:
-
-- `g`
+Then verify a new Pi-web runtime command table contains the Goal commands:
 - `goal`
 - `g-start`
 - `g-add`
 - `g-status`
 - `g-list`
-- `g-subtasks`
-- `g-subtask-done`
-- `g-subtask-open`
-- `g-subtask-block`
-- `g-events`
-- `g-config`
-- `g-doctor`
-- `g-lock`
-- `g-unlock`
-- `g-backup`
-- `g-restore-backup`
-- `g-help`
-- `g-run`
-- `g-resume`
-- `g-pause`
-- `g-stop`
-- `g-done`
-- `g-complete`
-- `g-mode`
+All registered commands:
+- `goal`
 - `goal-start`
 - `goal-add`
 - `goal-status`
-- `goal-list`
-- `goal-subtasks`
-- `goal-subtask-done`
-- `goal-subtask-open`
-- `goal-subtask-block`
-- `goal-events`
-- `goal-config`
-- `goal-doctor`
-- `goal-lock`
-- `goal-unlock`
-- `goal-backup`
-- `goal-restore-backup`
-- `goal-help`
 - `goal-run`
 - `goal-resume`
 - `goal-pause`
@@ -162,15 +130,15 @@ Then verify a new Pi-web runtime command table contains 48 Goal commands:
 
 And verify the status API returns `config.version`, `config.maxRetryMs`, `config.maxEvents`, `config.lockTimeoutMs`, `config.lockStaleMs`, `config.watchdogIntervalMs`, `lock`, `backup`, `watchdog`, `current.runtime`, and `current.diagnostics` for a running goal.
 
-Note: terminal commands run inside the Pi extension and can inspect the persistent store, lock, and backup files. Pi-web-only live runtime fields such as `current.runtime.liveRunning`, completion-notification suppression, and watchdog scan counters are exposed through the Pi-web API/UI, not through `/g-config`.
+Note: terminal commands run inside the Pi extension and can inspect the persistent store, lock, and backup files. Pi-web-only live runtime fields such as `current.runtime.liveRunning`, completion-notification suppression, and watchdog scan counters are exposed through the Pi-web API/UI, not through `/goal config`.
 
 ## Troubleshooting
 
-- Start with `/g-doctor` for a one-shot terminal diagnostic summary of version, store path, backup, lock, current goal, retry timing, event summary top types, and recent events.
-- Use `/g-events restore run` or the API `eventTypes=restore,run` filter when the full event history is noisy.
-- If the Goal appears stuck waiting for a future retry, use `/g-run` or the Pi-web **Run now** button to bypass the retry delay; Pi-web skips duplicate delivery when the session is already live-running.
-- If the store lock is suspicious, inspect with `/g-lock`; only use `/g-unlock` when it reports a stale lock. Non-stale locks are never removed by the command.
-- If `goal-runner.json` is unreadable, inspect `/g-backup`; it reports whether the backup contains the current session, and `/g-restore-backup` only restores when the primary store is unreadable and the backup is readable.
+- Start with `/goal doctor` for a one-shot terminal diagnostic summary of version, store path, backup, lock, current goal, retry timing, event summary top types, and recent events.
+- Use `/goal events restore run` or the API `eventTypes=restore,run` filter when the full event history is noisy.
+- If the Goal appears stuck waiting for a future retry, use `/goal-run` or the Pi-web **Run now** button to bypass the retry delay; Pi-web skips duplicate delivery when the session is already live-running.
+- If the store lock is suspicious, inspect with `/goal lock`; only use `/goal unlock` when it reports a stale lock. Non-stale locks are never removed by the command.
+- If `goal-runner.json` is unreadable, inspect `/goal backup`; it reports whether the backup contains the current session, and `/goal restore-backup` only restores when the primary store is unreadable and the backup is readable.
 - For Pi-web-specific runtime state such as live-running sessions, watchdog `nextScanAt`/`lastScanDurationMs`, and skipped-running recovery counts, check `GET /api/goals/status?sessionId=<id>` or the Agents panel because terminal commands cannot see live RPC session state.
 - If the Agents panel shows watchdog `overdue` in orange, `watchdog.nextScanOverdueMs` is positive and the periodic watchdog timer appears late; check service logs and restart Pi-web if the value keeps increasing.
 

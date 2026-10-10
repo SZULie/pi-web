@@ -514,7 +514,7 @@ export function GoalRunnerPanel({ rootSession, active = false, onGoalStatusChang
                   <div className="goal-empty-icon">🎯</div>
                   <div className="goal-empty-title">当前会话暂无活跃目标 (No Active Goal)</div>
                   <div className="goal-empty-desc">
-                    你可以直接在下方输入目标发起，或在对话框中使用 <code>/g &lt;目标描述&gt;</code> 命令。
+                    你可以直接在下方输入目标发起，或在对话框中使用 <code>/goal &lt;目标描述&gt;</code> 命令。
                   </div>
 
                   <form

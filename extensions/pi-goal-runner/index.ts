@@ -271,7 +271,7 @@ function continuePrompt(goal: GoalRecord): string {
     ? "6. In finish mode: if all requirements and subgoals are completely finished and verified, you must call the goal_complete tool before giving your final summary to stop automated loops. Do not summarize without calling goal_complete if the goal is truly done. In forever mode: continue improving without calling goal_complete."
     : "6. In forever mode: continuously improve, refactor, and harden even after core completion. Do not call goal_complete.";
 
-  return `Continue the active long-running Goal. Do not stop unless the user explicitly uses /g-stop, /goal-stop, /g-pause, or /goal-pause.\n\n${goalText(goal)}\n\n${modeText}\nIteration: ${goal.iteration + 1}\n\nRules:\n1. Inspect the previous result and current state, then choose the next useful step.\n2. If something failed, diagnose, change strategy, and verify.\n3. If information is missing but not safety-critical, make a reasonable assumption and continue.\n4. Ask the user only when blocked by safety, credentials, irreversible operations, or unclear acceptance criteria.\n5. Use explicit timeouts for blocking shell/network commands.\n${finishRule}`;
+  return `Continue the active long-running Goal. Do not stop unless the user explicitly uses /goal-stop or /goal-pause.\n\n${goalText(goal)}\n\n${modeText}\nIteration: ${goal.iteration + 1}\n\nRules:\n1. Inspect the previous result and current state, then choose the next useful step.\n2. If something failed, diagnose, change strategy, and verify.\n3. If information is missing but not safety-critical, make a reasonable assumption and continue.\n4. Ask the user only when blocked by safety, credentials, irreversible operations, or unclear acceptance criteria.\n5. Use explicit timeouts for blocking shell/network commands.\n${finishRule}`;
 }
 
 function startAfterClarificationPrompt(goal: GoalRecord, answer: string): string {
@@ -324,7 +324,7 @@ function scheduleRunningGoal(pi: ExtensionAPI, sessionId: string, goal: GoalReco
 function startGoal(pi: ExtensionAPI, ctx: any, sessionId: string, objective: string): void {
   const trimmed = objective.trim();
   if (!trimmed) {
-    notify(ctx, "Usage: /g <objective> or /g-start <objective>", "error");
+    notify(ctx, "Usage: /goal <objective> or /goal-start <objective>", "error");
     return;
   }
   const existing = readStore().sessions[sessionId];
@@ -355,7 +355,7 @@ function startGoal(pi: ExtensionAPI, ctx: any, sessionId: string, objective: str
 function addGoal(pi: ExtensionAPI, ctx: any, sessionId: string, text: string): void {
   const trimmed = text.trim();
   if (!trimmed) {
-    notify(ctx, "Usage: /g-add <subgoal>", "error");
+    notify(ctx, "Usage: /goal-add <subgoal> or /goal add <subgoal>", "error");
     return;
   }
   const goal = updateGoal(sessionId, (existing) => {
@@ -450,7 +450,7 @@ function completeGoal(ctx: any, sessionId: string): void {
 function setModeGoal(ctx: any, sessionId: string, modeArg: string): void {
   const mode = modeArg.trim().toLowerCase();
   if (mode !== "finish" && mode !== "forever") {
-    notify(ctx, "Usage: /g-mode finish|forever", "error");
+    notify(ctx, "Usage: /goal-mode finish|forever", "error");
     return;
   }
   const goal = updateGoal(sessionId, (existing) => existing ? appendEvent({ ...existing, mode: mode as GoalMode }, "mode", `Mode set to ${mode}`) : undefined);
@@ -460,7 +460,7 @@ function setModeGoal(ctx: any, sessionId: string, modeArg: string): void {
 function statusGoal(ctx: any, sessionId: string): void {
   const goal = readStore().sessions[sessionId];
   if (!goal) {
-    notify(ctx, "Goal Runner: no goal. Use /g <objective>.", "info");
+    notify(ctx, "Goal Runner: no goal. Use /goal <objective>.", "info");
     return;
   }
   const now = Date.now();
@@ -485,14 +485,13 @@ function statusGoal(ctx: any, sessionId: string): void {
 function helpGoal(ctx: any): void {
   notify(ctx, [
     "Goal Runner commands:",
-    "/g <objective> or /g-start <objective> — start a Goal, or append when one already exists",
-    "/g-add <subgoal> — append a subgoal",
-    "/g-status, /g-list, /g-subtasks, /g-events [type...] — inspect progress",
-    "/g-subtask-done|open|block <n|id> — manage subtasks",
-    "/g-mode finish|forever — switch run mode",
-    "/g-run or /g-resume — run now / resume immediately",
-    "/g-pause, /g-stop, /g-done — control lifecycle",
-    "/g-doctor, /g-config, /g-lock, /g-unlock, /g-backup, /g-restore-backup — maintenance and recovery",
+    "/goal <objective> or /goal-start <objective> — start a Goal, or append when one already exists",
+    "/goal-add <subgoal> — append a subgoal",
+    "/goal-status — show status, retry timing, events, and backup coverage",
+    "/goal-run or /goal-resume — run now / resume immediately",
+    "/goal-pause, /goal-stop, /goal-done — control lifecycle",
+    "/goal-mode finish|forever — switch run mode",
+    "/goal <subcommand> — subtasks, subtask done|open|block <n|id>, events [type...], doctor, config, lock, unlock, backup, restore-backup, list, help",
   ].join("\n"), "info");
 }
 
@@ -714,7 +713,7 @@ function listSubtasks(ctx: any, sessionId: string): void {
 function setSubtaskStatus(ctx: any, sessionId: string, target: string, status: GoalSubtask["status"]): void {
   const trimmed = target.trim();
   if (!trimmed) {
-    notify(ctx, "Usage: /g-subtask-done <number|id>", "error");
+    notify(ctx, "Usage: /goal subtask done <number|id>", "error");
     return;
   }
   const goal = updateGoal(sessionId, (existing) => {
@@ -761,7 +760,16 @@ function parseGoalCommand(args: string): { action: string; text: string } {
   if (first === "add" || first === "a") return { action: "add", text };
   if (first === "mode") return { action: "mode", text };
   if (first === "list" || first === "ls" || first === "l") return { action: "list", text };
-  if (first === "subtasks" || first === "tasks") return { action: "subtasks", text };
+  if (first === "subtask" || first === "subtasks" || first === "task" || first === "tasks") {
+    if (text) {
+      const [subAction, ...subRest] = text.split(/\s+/);
+      const subActionLower = subAction.toLowerCase();
+      if (subActionLower === "done" || subActionLower === "open" || subActionLower === "block") {
+        return { action: `subtask-${subActionLower}`, text: subRest.join(" ").trim() };
+      }
+    }
+    return { action: "subtasks", text };
+  }
   if (first === "events" || first === "event" || first === "log" || first === "logs") return { action: "events", text };
   if (first === "config" || first === "cfg") return { action: "config", text };
   if (first === "doctor" || first === "diag" || first === "diagnose") return { action: "doctor", text };
@@ -785,22 +793,26 @@ function eventTypeCompletions(prefix: string) {
 
 function commandCompletions(prefix: string) {
   const items = [
-    { value: "s ", label: "s <objective>" },
-    { value: "a ", label: "a <subgoal>" },
-    { value: "st", label: "status" },
-    { value: "ls", label: "list active goals" },
-    { value: "subtasks", label: "list subtasks" },
-    { value: "events", label: "recent events" },
-    { value: "cfg", label: "config" },
-    { value: "doctor", label: "doctor diagnostics" },
-    { value: "lock", label: "lock status" },
-    { value: "unlock", label: "clear stale lock only" },
-    { value: "r", label: "resume" },
-    { value: "p", label: "pause" },
-    { value: "x", label: "stop" },
-    { value: "done", label: "complete" },
-    { value: "mode finish", label: "mode finish" },
-    { value: "mode forever", label: "mode forever" },
+    { value: "status", label: "status — show current Goal status" },
+    { value: "start ", label: "start <objective> — start a Goal" },
+    { value: "add ", label: "add <subgoal> — append a subgoal" },
+    { value: "run", label: "run — run immediately" },
+    { value: "resume", label: "resume — resume paused Goal" },
+    { value: "pause", label: "pause — pause Goal" },
+    { value: "stop", label: "stop — stop Goal" },
+    { value: "done", label: "done — mark Goal complete" },
+    { value: "mode finish", label: "mode finish — finish-oriented mode" },
+    { value: "mode forever", label: "mode forever — continuous mode" },
+    { value: "subtasks", label: "subtasks — list subtasks" },
+    { value: "events", label: "events [type...] — recent events" },
+    { value: "doctor", label: "doctor — diagnostic summary" },
+    { value: "config", label: "config — configuration" },
+    { value: "lock", label: "lock — lock status" },
+    { value: "unlock", label: "unlock — clear stale lock only" },
+    { value: "backup", label: "backup — backup status" },
+    { value: "restore-backup", label: "restore-backup — restore backup" },
+    { value: "list", label: "list — list active Goals" },
+    { value: "help", label: "help — show help" },
   ];
   const p = prefix.toLowerCase();
   return items.filter((item) => item.value.toLowerCase().startsWith(p));
@@ -810,7 +822,7 @@ export default function (pi: ExtensionAPI) {
   function register(name: string, description: string, action: (args: string, ctx: any, sessionId: string) => void, completions?: (prefix: string) => any[]) {
     pi.registerCommand(name, {
       description,
-      getArgumentCompletions: completions || (name === "goal" || name === "g" ? commandCompletions : undefined),
+      getArgumentCompletions: completions || (name === "goal" ? commandCompletions : undefined),
       handler: async (args: string, ctx: any) => {
         const sessionId = sessionOrNotify(ctx);
         if (!sessionId) return;
@@ -831,6 +843,9 @@ export default function (pi: ExtensionAPI) {
     if (parsed.action === "mode") return setModeGoal(ctx, sessionId, parsed.text);
     if (parsed.action === "list") return listGoals(ctx);
     if (parsed.action === "subtasks") return listSubtasks(ctx, sessionId);
+    if (parsed.action === "subtask-done") return setSubtaskStatus(ctx, sessionId, parsed.text, "done");
+    if (parsed.action === "subtask-open") return setSubtaskStatus(ctx, sessionId, parsed.text, "pending");
+    if (parsed.action === "subtask-block") return setSubtaskStatus(ctx, sessionId, parsed.text, "blocked");
     if (parsed.action === "events") return listEvents(ctx, sessionId, parsed.text);
     if (parsed.action === "config") return configGoal(ctx);
     if (parsed.action === "doctor") return doctorGoal(ctx, sessionId);
@@ -843,54 +858,15 @@ export default function (pi: ExtensionAPI) {
   };
 
   register("goal", "Goal Runner control", mainHandler);
-  register("g", "Short Goal Runner control", mainHandler);
-  register("g-start", "Start a persistent goal", (args, ctx, sessionId) => startGoal(pi, ctx, sessionId, args));
-  register("g-add", "Append a subgoal", (args, ctx, sessionId) => addGoal(pi, ctx, sessionId, args));
-  register("g-status", "Show Goal status, retry timing, events, and backup coverage", (_args, ctx, sessionId) => statusGoal(ctx, sessionId));
-  register("g-list", "List active Goals", (_args, ctx) => listGoals(ctx));
-  register("g-subtasks", "List current Goal subtasks", (_args, ctx, sessionId) => listSubtasks(ctx, sessionId));
-  register("g-subtask-done", "Mark a subtask done by number or id", (args, ctx, sessionId) => setSubtaskStatus(ctx, sessionId, args, "done"));
-  register("g-subtask-open", "Reopen a subtask by number or id", (args, ctx, sessionId) => setSubtaskStatus(ctx, sessionId, args, "pending"));
-  register("g-subtask-block", "Mark a subtask blocked by number or id", (args, ctx, sessionId) => setSubtaskStatus(ctx, sessionId, args, "blocked"));
-  register("g-events", "Show recent Goal events, optionally filtered by type", (args, ctx, sessionId) => listEvents(ctx, sessionId, args), eventTypeCompletions);
-  register("g-config", "Show Goal Runner configuration", (_args, ctx) => configGoal(ctx));
-  register("g-doctor", "Show Goal Runner diagnostic summary", (_args, ctx, sessionId) => doctorGoal(ctx, sessionId));
-  register("g-lock", "Show Goal Runner store lock status", (_args, ctx) => lockGoal(ctx));
-  register("g-unlock", "Clear a stale Goal Runner store lock", (_args, ctx) => unlockGoal(ctx));
-  register("g-backup", "Show Goal Runner backup status and current-session coverage", (_args, ctx, sessionId) => backupGoal(ctx, sessionId));
-  register("g-restore-backup", "Restore Goal Runner store from backup when primary is unreadable", (_args, ctx) => restoreBackupGoal(ctx));
-  register("g-help", "Show Goal help", (_args, ctx) => helpGoal(ctx));
-  register("g-run", "Run Goal now", (_args, ctx, sessionId) => runGoal(pi, ctx, sessionId));
-  register("g-resume", "Resume Goal", (_args, ctx, sessionId) => resumeGoal(pi, ctx, sessionId));
-  register("g-pause", "Pause Goal", (_args, ctx, sessionId) => pauseGoal(ctx, sessionId));
-  register("g-stop", "Stop Goal", (_args, ctx, sessionId) => stopGoal(ctx, sessionId));
-  register("g-done", "Mark Goal complete", (_args, ctx, sessionId) => completeGoal(ctx, sessionId));
-  register("g-complete", "Mark Goal complete", (_args, ctx, sessionId) => completeGoal(ctx, sessionId));
-  register("g-mode", "Set Goal mode: finish|forever", (args, ctx, sessionId) => setModeGoal(ctx, sessionId, args));
-
-  // Compatibility aliases.
   register("goal-start", "Start a persistent goal", (args, ctx, sessionId) => startGoal(pi, ctx, sessionId, args));
   register("goal-add", "Append a subgoal", (args, ctx, sessionId) => addGoal(pi, ctx, sessionId, args));
   register("goal-status", "Show Goal status, retry timing, events, and backup coverage", (_args, ctx, sessionId) => statusGoal(ctx, sessionId));
-  register("goal-list", "List active Goals", (_args, ctx) => listGoals(ctx));
-  register("goal-subtasks", "List current Goal subtasks", (_args, ctx, sessionId) => listSubtasks(ctx, sessionId));
-  register("goal-subtask-done", "Mark a subtask done by number or id", (args, ctx, sessionId) => setSubtaskStatus(ctx, sessionId, args, "done"));
-  register("goal-subtask-open", "Reopen a subtask by number or id", (args, ctx, sessionId) => setSubtaskStatus(ctx, sessionId, args, "pending"));
-  register("goal-subtask-block", "Mark a subtask blocked by number or id", (args, ctx, sessionId) => setSubtaskStatus(ctx, sessionId, args, "blocked"));
-  register("goal-events", "Show recent Goal events, optionally filtered by type", (args, ctx, sessionId) => listEvents(ctx, sessionId, args), eventTypeCompletions);
-  register("goal-config", "Show Goal Runner configuration", (_args, ctx) => configGoal(ctx));
-  register("goal-doctor", "Show Goal Runner diagnostic summary", (_args, ctx, sessionId) => doctorGoal(ctx, sessionId));
-  register("goal-lock", "Show Goal Runner store lock status", (_args, ctx) => lockGoal(ctx));
-  register("goal-unlock", "Clear a stale Goal Runner store lock", (_args, ctx) => unlockGoal(ctx));
-  register("goal-backup", "Show Goal Runner backup status and current-session coverage", (_args, ctx, sessionId) => backupGoal(ctx, sessionId));
-  register("goal-restore-backup", "Restore Goal Runner store from backup when primary is unreadable", (_args, ctx) => restoreBackupGoal(ctx));
-  register("goal-help", "Show Goal help", (_args, ctx) => helpGoal(ctx));
   register("goal-run", "Run Goal now", (_args, ctx, sessionId) => runGoal(pi, ctx, sessionId));
   register("goal-resume", "Resume Goal", (_args, ctx, sessionId) => resumeGoal(pi, ctx, sessionId));
   register("goal-pause", "Pause Goal", (_args, ctx, sessionId) => pauseGoal(ctx, sessionId));
   register("goal-stop", "Stop Goal", (_args, ctx, sessionId) => stopGoal(ctx, sessionId));
-  register("goal-complete", "Mark Goal complete", (_args, ctx, sessionId) => completeGoal(ctx, sessionId));
   register("goal-done", "Mark Goal complete", (_args, ctx, sessionId) => completeGoal(ctx, sessionId));
+  register("goal-complete", "Mark Goal complete", (_args, ctx, sessionId) => completeGoal(ctx, sessionId));
   register("goal-mode", "Set Goal mode: finish|forever", (args, ctx, sessionId) => setModeGoal(ctx, sessionId, args));
 
   // Register goal_complete tool so the AI can mark a finished Goal complete in finish mode.
