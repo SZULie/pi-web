@@ -6,6 +6,14 @@ export interface ToolEntry {
   declarationHidden?: boolean;
   parameters?: Record<string, unknown>;
   promptGuidelines?: string[];
+  scope?: "workspace" | "global";
+  sourceInfo?: {
+    path?: string;
+    source?: string;
+    scope?: string;
+    origin?: string;
+    baseDir?: string;
+  };
 }
 
 /** Presets that pin an explicit tool list onto the session. */

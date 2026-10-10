@@ -11,6 +11,7 @@ interface Props {
   tools: ToolEntry[] | null;
   translate: Translate;
   onToolsUpdated?: () => Promise<void> | void;
+  sessionId?: string;
 }
 
 interface ParameterField {
@@ -99,13 +100,27 @@ function EmptyState({ children }: { children: string }) {
   return <div className="tool-definitions-empty">{children}</div>;
 }
 
-export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated }: Props) {
-  // What the model is sent: under codemode's "only" mode the active built-in tools are reached
-  // from scripts, and codemode's description lists them.
+export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated, sessionId }: Props) {
+  const [filterActiveTab, setFilterActiveTab] = useState<"all" | "active" | "inactive">("all");
+  const [filterScopeTab, setFilterScopeTab] = useState<"all" | "workspace" | "global">("all");
+  const [isToggling, setIsToggling] = useState(false);
+
+  // All non-hidden tools (both active and inactive) can be inspected in the panel
   const declaredTools = useMemo(
-    () => tools?.filter((tool) => tool.active && !tool.declarationHidden) ?? null,
+    () => tools?.filter((tool) => !tool.declarationHidden) ?? null,
     [tools],
   );
+
+  const filteredTools = useMemo(() => {
+    if (!declaredTools) return null;
+    return declaredTools.filter((tool) => {
+      if (filterActiveTab === "active" && !tool.active) return false;
+      if (filterActiveTab === "inactive" && tool.active) return false;
+      if (filterScopeTab === "workspace" && tool.scope !== "workspace") return false;
+      if (filterScopeTab === "global" && tool.scope === "workspace") return false;
+      return true;
+    });
+  }, [declaredTools, filterActiveTab, filterScopeTab]);
   const [selectedToolName, setSelectedToolName] = useState<string | null>(null);
 
   // Overrides management state
@@ -139,16 +154,39 @@ export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated
 
   useEffect(() => {
     setSelectedToolName((current) =>
-      declaredTools?.some((tool) => tool.name === current)
+      filteredTools?.some((tool) => tool.name === current)
         ? current
-        : declaredTools?.[0]?.name ?? null,
+        : filteredTools?.[0]?.name ?? null,
     );
-  }, [declaredTools]);
+  }, [filteredTools]);
 
-  const selectedTool = declaredTools?.find((tool) => tool.name === selectedToolName)
-    ?? declaredTools?.[0]
+  const selectedTool = filteredTools?.find((tool) => tool.name === selectedToolName)
+    ?? filteredTools?.[0]
     ?? null;
   const fields = useMemo(() => (selectedTool ? getToolParameterFields(selectedTool.parameters) : []), [selectedTool]);
+
+  const handleToggleTool = useCallback(async () => {
+    if (!selectedTool || !sessionId || isToggling) return;
+    setIsToggling(true);
+    try {
+      const res = await fetch(`/api/agent/${encodeURIComponent(sessionId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "toggle_tool",
+          toolName: selectedTool.name,
+          active: !selectedTool.active,
+        }),
+      });
+      if (res.ok) {
+        await onToolsUpdated?.();
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsToggling(false);
+    }
+  }, [selectedTool, sessionId, isToggling, onToolsUpdated]);
 
   // Cancel edit when tool changes
   useEffect(() => {
@@ -266,32 +304,93 @@ export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated
   return (
     <div className="tool-definitions-panel">
       <nav className="tool-definitions-sidebar" aria-label={translate("tools.title")}>
+        <div className="tool-sidebar-filters">
+          <div className="tool-filter-group">
+            <span className="tool-filter-label">状态:</span>
+            <div className="tool-filter-buttons">
+              <button
+                type="button"
+                className={`tool-filter-btn ${filterActiveTab === "all" ? "active" : ""}`}
+                onClick={() => setFilterActiveTab("all")}
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                className={`tool-filter-btn ${filterActiveTab === "active" ? "active" : ""}`}
+                onClick={() => setFilterActiveTab("active")}
+              >
+                已激活
+              </button>
+              <button
+                type="button"
+                className={`tool-filter-btn ${filterActiveTab === "inactive" ? "active" : ""}`}
+                onClick={() => setFilterActiveTab("inactive")}
+              >
+                未激活
+              </button>
+            </div>
+          </div>
+          <div className="tool-filter-group">
+            <span className="tool-filter-label">范围:</span>
+            <div className="tool-filter-buttons">
+              <button
+                type="button"
+                className={`tool-filter-btn ${filterScopeTab === "all" ? "active" : ""}`}
+                onClick={() => setFilterScopeTab("all")}
+              >
+                全部
+              </button>
+              <button
+                type="button"
+                className={`tool-filter-btn ${filterScopeTab === "workspace" ? "active" : ""}`}
+                onClick={() => setFilterScopeTab("workspace")}
+              >
+                工作区
+              </button>
+              <button
+                type="button"
+                className={`tool-filter-btn ${filterScopeTab === "global" ? "active" : ""}`}
+                onClick={() => setFilterScopeTab("global")}
+              >
+                全局
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="tool-definitions-list">
-          {declaredTools && declaredTools.length > 0 ? (
-            declaredTools.map((tool) => {
+          {filteredTools && filteredTools.length > 0 ? (
+            filteredTools.map((tool) => {
               const selected = tool.name === selectedTool?.name;
               const hasOverride = Boolean(overrides[tool.name]);
               return (
                 <button
                   key={tool.name}
                   type="button"
-                  className={`tool-definitions-item${selected ? " selected" : ""}`}
+                  className={`tool-definitions-item${selected ? " selected" : ""}${tool.active ? " is-active" : " is-inactive"}`}
                   aria-pressed={selected}
                   onClick={() => setSelectedToolName(tool.name)}
                 >
-                  <code>{tool.name}</code>
-                  {hasOverride && (
-                    <span
-                      className="tool-customized-dot"
-                      title={translate("tools.customizedBadge")}
-                    >
-                      ●
-                    </span>
-                  )}
+                  <div className="tool-item-info">
+                    <span className={`tool-item-status-dot ${tool.active ? "active" : "inactive"}`} />
+                    <code>{tool.name}</code>
+                    {hasOverride && (
+                      <span
+                        className="tool-customized-dot"
+                        title={translate("tools.customizedBadge")}
+                      >
+                        ●
+                      </span>
+                    )}
+                  </div>
+                  <span className="tool-item-scope-tag">
+                    {tool.scope === "workspace" ? "工作区" : "全局"}
+                  </span>
                 </button>
               );
             })
-          ) : declaredTools ? (
+          ) : filteredTools ? (
             <EmptyState>{translate("tools.noTools")}</EmptyState>
           ) : (
             <EmptyState>{loading ? translate("tools.loading") : translate("tools.load")}</EmptyState>
@@ -305,11 +404,31 @@ export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated
             <div className="tool-definition-header">
               <div className="tool-definition-title-row">
                 <code className="tool-title-name">{selectedTool.name}</code>
+                <span className={`tool-status-pill ${selectedTool.active ? "active" : "inactive"}`}>
+                  {selectedTool.active ? "已激活 (Active)" : "未激活 (Inactive)"}
+                </span>
+                <span className="tool-scope-pill">
+                  {selectedTool.scope === "workspace" ? "当前工作目录 (Workspace)" : "全局默认 (Global)"}
+                </span>
                 {isCustomized && (
                   <span className="tool-customized-tag">{translate("tools.customizedBadge")}</span>
                 )}
               </div>
               <div className="tool-definition-actions">
+                {sessionId && (
+                  <button
+                    type="button"
+                    className={`tool-action-btn ${selectedTool.active ? "tool-btn-deactivate" : "tool-btn-activate"}`}
+                    disabled={isToggling}
+                    onClick={handleToggleTool}
+                  >
+                    {isToggling
+                      ? "切换中…"
+                      : selectedTool.active
+                        ? "⏸ 停用该工具"
+                        : "▶ 激活该工具"}
+                  </button>
+                )}
                 {isEditing ? (
                   <>
                     <button
@@ -549,9 +668,129 @@ export function ToolDefinitionsPanel({ loading, tools, translate, onToolsUpdated
       </section>
 
       <style>{`
+        .tool-sidebar-filters {
+          padding: 8px 10px;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          background: var(--bg);
+        }
+        .tool-filter-group {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 11px;
+        }
+        .tool-filter-label {
+          color: var(--text-dim);
+          font-size: 10px;
+          width: 28px;
+          flex-shrink: 0;
+        }
+        .tool-filter-buttons {
+          display: flex;
+          gap: 2px;
+          flex: 1;
+        }
+        .tool-filter-btn {
+          flex: 1;
+          padding: 2px 4px;
+          font-size: 10px;
+          border-radius: 3px;
+          border: 1px solid var(--border);
+          background: var(--bg-panel);
+          color: var(--text-muted);
+          cursor: pointer;
+          text-align: center;
+        }
+        .tool-filter-btn:hover {
+          background: var(--bg-hover);
+          color: var(--text);
+        }
+        .tool-filter-btn.active {
+          background: var(--accent);
+          color: #fff;
+          border-color: var(--accent);
+          font-weight: 600;
+        }
+        .tool-item-info {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+          flex: 1;
+        }
+        .tool-item-status-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 5px;
+          flex-shrink: 0;
+        }
+        .tool-item-status-dot.active {
+          background: #16a34a;
+          box-shadow: 0 0 4px rgba(22, 163, 74, 0.4);
+        }
+        .tool-item-status-dot.inactive {
+          background: var(--border);
+        }
+        .tool-item-scope-tag {
+          font-size: 9px;
+          padding: 1px 4px;
+          border-radius: 2px;
+          background: var(--bg-hover);
+          color: var(--text-dim);
+          flex-shrink: 0;
+          margin-left: 4px;
+        }
+        .tool-status-pill {
+          font-size: 10px;
+          font-weight: 600;
+          padding: 2px 6px;
+          border-radius: 4px;
+        }
+        .tool-status-pill.active {
+          background: rgba(22, 163, 74, 0.15);
+          color: #16a34a;
+          border: 1px solid rgba(22, 163, 74, 0.3);
+        }
+        .tool-status-pill.inactive {
+          background: var(--bg-hover);
+          color: var(--text-dim);
+          border: 1px solid var(--border);
+        }
+        .tool-scope-pill {
+          font-size: 10px;
+          padding: 2px 6px;
+          border-radius: 4px;
+          background: var(--bg-panel);
+          color: var(--text-muted);
+          border: 1px solid var(--border);
+        }
+        .tool-btn-activate {
+          background: rgba(22, 163, 74, 0.15);
+          color: #16a34a;
+          border: 1px solid rgba(22, 163, 74, 0.3);
+        }
+        .tool-btn-activate:hover {
+          background: #16a34a;
+          color: #fff;
+        }
+        .tool-btn-deactivate {
+          background: rgba(239, 68, 68, 0.12);
+          color: #ef4444;
+          border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        .tool-btn-deactivate:hover {
+          background: #ef4444;
+          color: #fff;
+        }
+        .tool-definitions-item.is-inactive {
+          opacity: 0.7;
+        }
         .tool-definitions-panel {
           display: grid;
-          grid-template-columns: clamp(112px, 26%, 220px) minmax(0, 1fr);
+          grid-template-columns: clamp(140px, 28%, 240px) minmax(0, 1fr);
           height: min(600px, 75dvh);
           min-height: 240px;
           overflow: hidden;

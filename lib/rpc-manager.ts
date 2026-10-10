@@ -1198,12 +1198,19 @@ export class AgentSessionWrapper {
         // does this to active `direct` tools. The set is private to pi 0.99's AgentSession.
         const hiddenDeclarations: unknown = Reflect.get(this.inner, "_hiddenDeclarations");
         const hidden = hiddenDeclarations instanceof Set ? hiddenDeclarations : new Set<unknown>();
-        return all.map((t) => ({
-          ...t,
-          description: declared.get(t.name) ?? t.description,
-          active: active.has(t.name),
-          declarationHidden: hidden.has(t.name),
-        }));
+        const cwd = this.inner.sessionManager.getCwd?.() ?? "";
+        return all.map((t) => {
+          const s = (t.sourceInfo ?? {}) as { path?: string; source?: string; scope?: string; origin?: string; baseDir?: string };
+          const isWorkspace = s.scope === "project" || Boolean(cwd && s.path && !s.path.startsWith("builtin:") && !s.path.includes(".pi/agent") && s.path.startsWith(cwd));
+          return {
+            ...t,
+            description: declared.get(t.name) ?? t.description,
+            active: active.has(t.name),
+            declarationHidden: hidden.has(t.name),
+            scope: isWorkspace ? ("workspace" as const) : ("global" as const),
+            sourceInfo: s,
+          };
+        });
       }
 
       case "get_commands": {
@@ -1239,6 +1246,25 @@ export class AgentSessionWrapper {
         const toolNames = command.toolNames as string[];
         this.setActiveToolSelection(toolNames);
         return null;
+      }
+
+      case "toggle_tool": {
+        const { toolName, active } = command as { toolName: string; active?: boolean };
+        const currentlyActive = new Set(this.inner.getActiveToolNames());
+        const shouldBeActive = active !== undefined ? active : !currentlyActive.has(toolName);
+        if (shouldBeActive) {
+          currentlyActive.add(toolName);
+        } else {
+          currentlyActive.delete(toolName);
+        }
+        const registered = new Map(this.inner.getAllTools().map((t) => [t.name, t]));
+        const validActive = Array.from(currentlyActive).filter((name) => registered.has(name));
+        this.inner.setActiveToolsByName(validActive);
+        const entries = this.inner.sessionManager.getEntries() as unknown as SessionEntry[];
+        if (readSessionToolSelection(entries) !== undefined) {
+          appendSessionToolSelection(this.inner.sessionManager, validActive);
+        }
+        return { success: true, active: shouldBeActive, activeTools: validActive };
       }
 
       case "reload": {

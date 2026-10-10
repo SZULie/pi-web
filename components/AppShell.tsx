@@ -2396,6 +2396,7 @@ export function AppShell() {
                   loading={systemInfoLoading}
                   tools={systemTools}
                   translate={translate}
+                  sessionId={selectedSession?.id}
                   onToolsUpdated={async () => {
                     if (systemInfoLoaderRef.current) {
                       setSystemInfoLoading(true);
